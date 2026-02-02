@@ -26,9 +26,9 @@ export default function Dashboard() {
         <div className="p-6 border-b border-border/50">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold font-display shadow-lg shadow-primary/25">
-              P
+              H
             </div>
-            <span className="text-lg font-bold font-display tracking-tight">ProManager</span>
+            <span className="text-lg font-bold font-display tracking-tight">hexaprotal1</span>
           </div>
         </div>
         

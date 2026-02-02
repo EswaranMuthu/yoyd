@@ -11,9 +11,9 @@ export default function Landing() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-xl font-display shadow-lg shadow-primary/25">
-                P
+                H
               </div>
-              <span className="text-xl font-bold font-display tracking-tight text-foreground">ProManager</span>
+              <span className="text-xl font-bold font-display tracking-tight text-foreground">hexaprotal1</span>
             </div>
             <div>
               <Button asChild className="shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all duration-300">
@@ -89,7 +89,7 @@ export default function Landing() {
       {/* Footer */}
       <footer className="py-12 border-t border-border/50">
         <div className="max-w-7xl mx-auto px-4 text-center text-muted-foreground text-sm">
-          <p>&copy; 2024 ProManager Inc. All rights reserved.</p>
+          <p>&copy; 2024 hexaprotal1. All rights reserved.</p>
         </div>
       </footer>
     </div>
