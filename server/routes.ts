@@ -225,7 +225,7 @@ export async function registerRoutes(
         }
       }
 
-      const uniqueKeys = [...new Set(allKeysToDelete)];
+      const uniqueKeys = Array.from(new Set(allKeysToDelete));
 
       if (uniqueKeys.length > 0) {
         await deleteS3Objects(uniqueKeys);
