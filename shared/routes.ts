@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertProjectSchema, insertInvitationSchema, projects, invitations } from './schema';
+import { insertS3ObjectSchema, s3Objects } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -18,61 +18,70 @@ export const errorSchemas = {
 };
 
 export const api = {
-  projects: {
+  objects: {
     list: {
       method: 'GET' as const,
-      path: '/api/projects',
+      path: '/api/objects',
       responses: {
-        200: z.array(z.custom<typeof projects.$inferSelect>()),
+        200: z.array(z.custom<typeof s3Objects.$inferSelect>()),
         401: errorSchemas.unauthorized,
       },
     },
-    create: {
+    sync: {
       method: 'POST' as const,
-      path: '/api/projects',
-      input: insertProjectSchema,
+      path: '/api/objects/sync',
       responses: {
-        201: z.custom<typeof projects.$inferSelect>(),
+        200: z.object({ synced: z.number(), deleted: z.number() }),
+        401: errorSchemas.unauthorized,
+        500: errorSchemas.internal,
+      },
+    },
+    createFolder: {
+      method: 'POST' as const,
+      path: '/api/objects/folder',
+      input: z.object({ name: z.string().min(1), parentKey: z.string().optional() }),
+      responses: {
+        201: z.custom<typeof s3Objects.$inferSelect>(),
         400: errorSchemas.validation,
         401: errorSchemas.unauthorized,
       },
     },
-    get: {
-      method: 'GET' as const,
-      path: '/api/projects/:id',
-      responses: {
-        200: z.custom<typeof projects.$inferSelect>(),
-        404: errorSchemas.notFound,
-        401: errorSchemas.unauthorized,
-      },
-    },
-  },
-  invitations: {
-    list: {
-      method: 'GET' as const,
-      path: '/api/invitations',
-      responses: {
-        200: z.array(z.custom<typeof invitations.$inferSelect & { project?: typeof projects.$inferSelect }>()),
-        401: errorSchemas.unauthorized,
-      },
-    },
-    create: {
+    uploadUrl: {
       method: 'POST' as const,
-      path: '/api/invitations',
-      input: insertInvitationSchema,
+      path: '/api/objects/upload-url',
+      input: z.object({ fileName: z.string().min(1), mimeType: z.string(), parentKey: z.string().optional() }),
       responses: {
-        201: z.custom<typeof invitations.$inferSelect>(),
+        200: z.object({ url: z.string(), key: z.string() }),
         400: errorSchemas.validation,
         401: errorSchemas.unauthorized,
       },
     },
-    respond: {
+    confirmUpload: {
       method: 'POST' as const,
-      path: '/api/invitations/:id/respond',
-      input: z.object({ status: z.enum(["accepted", "rejected"]) }),
+      path: '/api/objects/confirm-upload',
+      input: z.object({ key: z.string() }),
       responses: {
-        200: z.custom<typeof invitations.$inferSelect>(),
+        200: z.custom<typeof s3Objects.$inferSelect>(),
+        400: errorSchemas.validation,
+        401: errorSchemas.unauthorized,
+      },
+    },
+    downloadUrl: {
+      method: 'GET' as const,
+      path: '/api/objects/:id/download',
+      responses: {
+        200: z.object({ url: z.string() }),
         404: errorSchemas.notFound,
+        401: errorSchemas.unauthorized,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/objects',
+      input: z.object({ keys: z.array(z.string()).min(1) }),
+      responses: {
+        200: z.object({ deleted: z.number() }),
+        400: errorSchemas.validation,
         401: errorSchemas.unauthorized,
       },
     },

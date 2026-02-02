@@ -1,0 +1,82 @@
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { S3Object, PresignedUrlResponse, SyncResponse } from "@shared/schema";
+
+export function useS3Objects(prefix?: string) {
+  return useQuery<S3Object[]>({
+    queryKey: ["/api/objects", prefix || ""],
+    queryFn: async () => {
+      const url = prefix ? `/api/objects?prefix=${encodeURIComponent(prefix)}` : "/api/objects";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch objects");
+      return res.json();
+    },
+  });
+}
+
+export function useSyncObjects() {
+  return useMutation<SyncResponse>({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/objects/sync");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/objects"] });
+    },
+  });
+}
+
+export function useCreateFolder() {
+  return useMutation<S3Object, Error, { name: string; parentKey?: string }>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", "/api/objects/folder", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/objects"] });
+    },
+  });
+}
+
+export function useGetUploadUrl() {
+  return useMutation<PresignedUrlResponse, Error, { fileName: string; mimeType: string; parentKey?: string }>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", "/api/objects/upload-url", data);
+      return res.json();
+    },
+  });
+}
+
+export function useConfirmUpload() {
+  return useMutation<S3Object, Error, { key: string }>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", "/api/objects/confirm-upload", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/objects"] });
+    },
+  });
+}
+
+export function useGetDownloadUrl() {
+  return useMutation<{ url: string }, Error, number>({
+    mutationFn: async (id) => {
+      const res = await fetch(`/api/objects/${id}/download`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to get download URL");
+      return res.json();
+    },
+  });
+}
+
+export function useDeleteObjects() {
+  return useMutation<{ deleted: number }, Error, { keys: string[] }>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("DELETE", "/api/objects", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/objects"] });
+    },
+  });
+}

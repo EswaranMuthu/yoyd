@@ -1,71 +1,75 @@
-import { projects, invitations, type Project, type InsertProject, type Invitation, type InsertInvitation, type UpdateInvitationStatusRequest } from "@shared/schema";
+import { s3Objects, type S3Object, type InsertS3Object } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, like, isNull } from "drizzle-orm";
 
 export interface IStorage {
-  // Projects
-  getProjects(userId: string): Promise<Project[]>;
-  getProject(id: number): Promise<Project | undefined>;
-  createProject(project: InsertProject): Promise<Project>;
-
-  // Invitations
-  getInvitations(email: string): Promise<(Invitation & { project?: Project })[]>;
-  getInvitation(id: number): Promise<Invitation | undefined>;
-  createInvitation(invitation: InsertInvitation): Promise<Invitation>;
-  updateInvitationStatus(id: number, status: "accepted" | "rejected"): Promise<Invitation>;
+  getObjects(parentKey?: string | null): Promise<S3Object[]>;
+  getObject(id: number): Promise<S3Object | undefined>;
+  getObjectByKey(key: string): Promise<S3Object | undefined>;
+  createObject(object: InsertS3Object): Promise<S3Object>;
+  updateObject(key: string, updates: Partial<InsertS3Object>): Promise<S3Object | undefined>;
+  deleteObject(key: string): Promise<void>;
+  deleteObjectsByPrefix(prefix: string): Promise<void>;
+  upsertObject(object: InsertS3Object): Promise<S3Object>;
+  getAllObjects(): Promise<S3Object[]>;
+  clearAllObjects(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
-  // Projects
-  async getProjects(userId: string): Promise<Project[]> {
-    return await db.select().from(projects).where(eq(projects.ownerId, userId));
+  async getObjects(parentKey?: string | null): Promise<S3Object[]> {
+    if (parentKey === null || parentKey === undefined || parentKey === "") {
+      return await db.select().from(s3Objects).where(isNull(s3Objects.parentKey));
+    }
+    return await db.select().from(s3Objects).where(eq(s3Objects.parentKey, parentKey));
   }
 
-  async getProject(id: number): Promise<Project | undefined> {
-    const [project] = await db.select().from(projects).where(eq(projects.id, id));
-    return project;
+  async getObject(id: number): Promise<S3Object | undefined> {
+    const [object] = await db.select().from(s3Objects).where(eq(s3Objects.id, id));
+    return object;
   }
 
-  async createProject(insertProject: InsertProject): Promise<Project> {
-    const [project] = await db.insert(projects).values(insertProject).returning();
-    return project;
+  async getObjectByKey(key: string): Promise<S3Object | undefined> {
+    const [object] = await db.select().from(s3Objects).where(eq(s3Objects.key, key));
+    return object;
   }
 
-  // Invitations
-  async getInvitations(email: string): Promise<(Invitation & { project?: Project })[]> {
-    // Join with projects to get project details
-    const results = await db
-      .select({
-        invitation: invitations,
-        project: projects,
-      })
-      .from(invitations)
-      .leftJoin(projects, eq(invitations.projectId, projects.id))
-      .where(eq(invitations.email, email));
-
-    return results.map(row => ({
-      ...row.invitation,
-      project: row.project || undefined,
-    }));
+  async createObject(insertObject: InsertS3Object): Promise<S3Object> {
+    const [object] = await db.insert(s3Objects).values(insertObject).returning();
+    return object;
   }
 
-  async getInvitation(id: number): Promise<Invitation | undefined> {
-    const [invitation] = await db.select().from(invitations).where(eq(invitations.id, id));
-    return invitation;
-  }
-
-  async createInvitation(insertInvitation: InsertInvitation): Promise<Invitation> {
-    const [invitation] = await db.insert(invitations).values(insertInvitation).returning();
-    return invitation;
-  }
-
-  async updateInvitationStatus(id: number, status: "accepted" | "rejected"): Promise<Invitation> {
-    const [updated] = await db
-      .update(invitations)
-      .set({ status })
-      .where(eq(invitations.id, id))
+  async updateObject(key: string, updates: Partial<InsertS3Object>): Promise<S3Object | undefined> {
+    const [object] = await db
+      .update(s3Objects)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(s3Objects.key, key))
       .returning();
-    return updated;
+    return object;
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    await db.delete(s3Objects).where(eq(s3Objects.key, key));
+  }
+
+  async deleteObjectsByPrefix(prefix: string): Promise<void> {
+    await db.delete(s3Objects).where(like(s3Objects.key, `${prefix}%`));
+  }
+
+  async upsertObject(insertObject: InsertS3Object): Promise<S3Object> {
+    const existing = await this.getObjectByKey(insertObject.key);
+    if (existing) {
+      const updated = await this.updateObject(insertObject.key, insertObject);
+      return updated || existing;
+    }
+    return await this.createObject(insertObject);
+  }
+
+  async getAllObjects(): Promise<S3Object[]> {
+    return await db.select().from(s3Objects);
+  }
+
+  async clearAllObjects(): Promise<void> {
+    await db.delete(s3Objects);
   }
 }
 

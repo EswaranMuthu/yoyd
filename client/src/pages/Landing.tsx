@@ -1,11 +1,9 @@
 import { Button } from "@/components/ui/button";
-import { Link } from "wouter";
-import { ArrowRight, CheckCircle2, Shield, Zap } from "lucide-react";
+import { ArrowRight, Cloud, Shield, Zap, FolderOpen } from "lucide-react";
 
 export default function Landing() {
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
       <nav className="border-b border-border/40 backdrop-blur-md fixed w-full top-0 z-50 bg-background/80">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -16,7 +14,7 @@ export default function Landing() {
               <span className="text-xl font-bold font-display tracking-tight text-foreground">hexaprotal1</span>
             </div>
             <div>
-              <Button asChild className="shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all duration-300">
+              <Button asChild className="shadow-lg shadow-primary/20 transition-all duration-300" data-testid="button-get-started">
                 <a href="/api/login">
                   Get Started
                 </a>
@@ -26,7 +24,6 @@ export default function Landing() {
         </div>
       </nav>
 
-      {/* Hero Section */}
       <div className="pt-32 pb-20 lg:pt-48 lg:pb-32 px-4 overflow-hidden relative">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-primary/5 rounded-full blur-3xl -z-10" />
         
@@ -36,57 +33,52 @@ export default function Landing() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
             </span>
-            New: Collaboration Tools Available
+            Secure S3 Storage Browser
           </div>
           
           <h1 className="text-5xl lg:text-7xl font-bold font-display tracking-tight text-foreground mb-6 animate-enter" style={{ animationDelay: "100ms" }}>
-            Manage projects with <br />
+            Browse your cloud storage <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-blue-400">
-              unparalleled clarity
+              with clarity
             </span>
           </h1>
           
           <p className="text-xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed animate-enter" style={{ animationDelay: "200ms" }}>
-            Streamline your workflow, collaborate with team members, and track progress effortlessly. The modern standard for project management.
+            A beautiful interface for managing your AWS S3 buckets. Browse files, upload content, create folders, and organize your cloud storage effortlessly.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center animate-enter" style={{ animationDelay: "300ms" }}>
-            <Button size="lg" className="h-14 px-8 text-lg shadow-xl shadow-primary/25 hover:translate-y-[-2px] transition-all" asChild>
+            <Button size="lg" className="h-14 px-8 text-lg shadow-xl shadow-primary/25 transition-all" asChild data-testid="button-start-free">
               <a href="/api/login">
                 Start for free <ArrowRight className="ml-2 w-5 h-5" />
               </a>
-            </Button>
-            <Button size="lg" variant="outline" className="h-14 px-8 text-lg hover:bg-muted/50 transition-all">
-              View Demo
             </Button>
           </div>
         </div>
       </div>
 
-      {/* Features Grid */}
       <div className="py-24 bg-muted/30 border-t border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-3 gap-8">
             <FeatureCard 
-              icon={<Zap className="w-6 h-6 text-yellow-500" />}
-              title="Lightning Fast"
-              description="Built on modern tech for instant interactions and zero lag time."
+              icon={<Cloud className="w-6 h-6 text-blue-500" />}
+              title="S3 Integration"
+              description="Connect directly to your AWS S3 buckets and browse files with ease."
             />
             <FeatureCard 
-              icon={<Shield className="w-6 h-6 text-blue-500" />}
-              title="Enterprise Security"
-              description="Bank-grade encryption keeps your project data safe and secure."
+              icon={<Shield className="w-6 h-6 text-green-500" />}
+              title="Secure Access"
+              description="Authenticated access with Replit Auth keeps your data protected."
             />
             <FeatureCard 
-              icon={<CheckCircle2 className="w-6 h-6 text-green-500" />}
-              title="Task Tracking"
-              description="Monitor progress with intuitive dashboards and real-time updates."
+              icon={<FolderOpen className="w-6 h-6 text-purple-500" />}
+              title="Full Control"
+              description="Upload, download, create folders, and delete files all from one interface."
             />
           </div>
         </div>
       </div>
       
-      {/* Footer */}
       <footer className="py-12 border-t border-border/50">
         <div className="max-w-7xl mx-auto px-4 text-center text-muted-foreground text-sm">
           <p>&copy; 2024 hexaprotal1. All rights reserved.</p>
@@ -98,8 +90,8 @@ export default function Landing() {
 
 function FeatureCard({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) {
   return (
-    <div className="bg-card p-8 rounded-2xl border border-border/50 hover:border-primary/20 hover:shadow-lg transition-all duration-300">
-      <div className="w-12 h-12 rounded-xl bg-background border border-border flex items-center justify-center mb-6 shadow-sm">
+    <div className="bg-card p-8 rounded-md border border-border/50 transition-all duration-300">
+      <div className="w-12 h-12 rounded-md bg-background border border-border flex items-center justify-center mb-6 shadow-sm">
         {icon}
       </div>
       <h3 className="text-xl font-bold mb-3">{title}</h3>
