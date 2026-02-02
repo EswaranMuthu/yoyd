@@ -131,17 +131,18 @@ export default function Dashboard() {
 
   const handleCreateFolder = useCallback(async () => {
     if (!newFolderName.trim()) return;
+    const folderNameToCreate = newFolderName.trim();
     try {
       await createFolderMutation.mutateAsync({
-        name: newFolderName.trim(),
+        name: folderNameToCreate,
         parentKey: currentPath || undefined,
+      });
+      toast({
+        title: "Folder created",
+        description: `Created folder "${folderNameToCreate}"`,
       });
       setNewFolderName("");
       setIsNewFolderOpen(false);
-      toast({
-        title: "Folder created",
-        description: `Created folder "${newFolderName}"`,
-      });
     } catch {
       toast({
         variant: "destructive",
@@ -164,13 +165,17 @@ export default function Dashboard() {
           parentKey: currentPath || undefined,
         });
 
-        await fetch(url, {
+        const uploadRes = await fetch(url, {
           method: "PUT",
           body: file,
           headers: {
             "Content-Type": file.type || "application/octet-stream",
           },
         });
+
+        if (!uploadRes.ok) {
+          throw new Error(`Failed to upload ${file.name}`);
+        }
 
         await confirmUploadMutation.mutateAsync({ key });
       }

@@ -48,7 +48,7 @@ export default function Landing() {
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center animate-enter" style={{ animationDelay: "300ms" }}>
-            <Button size="lg" className="h-14 px-8 text-lg shadow-xl shadow-primary/25 transition-all" asChild data-testid="button-start-free">
+            <Button size="lg" className="shadow-xl shadow-primary/25 transition-all" asChild data-testid="button-start-free">
               <a href="/api/login">
                 Start for free <ArrowRight className="ml-2 w-5 h-5" />
               </a>

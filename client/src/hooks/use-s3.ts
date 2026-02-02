@@ -3,14 +3,9 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { S3Object, PresignedUrlResponse, SyncResponse } from "@shared/schema";
 
 export function useS3Objects(prefix?: string) {
+  const url = prefix ? `/api/objects?prefix=${encodeURIComponent(prefix)}` : "/api/objects";
   return useQuery<S3Object[]>({
-    queryKey: ["/api/objects", prefix || ""],
-    queryFn: async () => {
-      const url = prefix ? `/api/objects?prefix=${encodeURIComponent(prefix)}` : "/api/objects";
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch objects");
-      return res.json();
-    },
+    queryKey: [url],
   });
 }
 
@@ -21,7 +16,9 @@ export function useSyncObjects() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/objects"] });
+      queryClient.invalidateQueries({ predicate: (query) => 
+        typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects")
+      });
     },
   });
 }
@@ -33,7 +30,9 @@ export function useCreateFolder() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/objects"] });
+      queryClient.invalidateQueries({ predicate: (query) => 
+        typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects")
+      });
     },
   });
 }
@@ -54,7 +53,9 @@ export function useConfirmUpload() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/objects"] });
+      queryClient.invalidateQueries({ predicate: (query) => 
+        typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects")
+      });
     },
   });
 }
@@ -76,7 +77,9 @@ export function useDeleteObjects() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/objects"] });
+      queryClient.invalidateQueries({ predicate: (query) => 
+        typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects")
+      });
     },
   });
 }
