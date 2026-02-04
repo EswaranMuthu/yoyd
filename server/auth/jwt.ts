@@ -2,7 +2,15 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "your-secret-key";
+function getJwtSecret(): string {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new Error("SESSION_SECRET environment variable is required for JWT authentication");
+  }
+  return secret;
+}
+
+const JWT_SECRET = getJwtSecret();
 const ACCESS_TOKEN_EXPIRY = "5m";
 const REFRESH_TOKEN_EXPIRY_DAYS = 7;
 

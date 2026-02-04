@@ -40,13 +40,17 @@ The server handles API requests through Express middleware, with routes register
 The storage layer (`server/storage.ts`) provides database abstraction with CRUD operations for S3 object metadata.
 
 ### Authentication
-- **Method**: Replit Auth (OpenID Connect)
-- **Session Storage**: PostgreSQL via connect-pg-simple
-- **Implementation**: Located in `server/replit_integrations/auth/`
+- **Method**: JWT (JSON Web Tokens) with username/password
+- **Token Storage**: LocalStorage (client-side)
+- **Access Token Expiry**: 5 minutes (auto-refreshes)
+- **Refresh Token Expiry**: 7 days
+- **Implementation**: Located in `server/auth/`
 - **Key Endpoints**:
-  - `/api/login` - Initiates authentication
-  - `/api/logout` - Ends session
-  - `/api/auth/user` - Returns current user info
+  - `POST /api/auth/register` - User registration
+  - `POST /api/auth/login` - User login
+  - `POST /api/auth/refresh` - Refresh access token
+  - `POST /api/auth/logout` - Ends session
+  - `GET /api/auth/user` - Returns current user info (requires Bearer token)
 
 ### API Structure
 Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. Key endpoints:
