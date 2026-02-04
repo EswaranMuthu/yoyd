@@ -2,7 +2,8 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
-import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import { registerAuthRoutes } from "./auth/routes";
+import { isAuthenticated } from "./auth/middleware";
 import { z } from "zod";
 import {
   listS3Objects,
@@ -22,7 +23,6 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
-  await setupAuth(app);
   registerAuthRoutes(app);
 
   app.get(api.objects.list.path, isAuthenticated, async (req, res) => {
