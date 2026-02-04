@@ -1,12 +1,32 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { User } from "@shared/models/auth";
+import { useState, useEffect } from "react";
+import {
+  AuthUser,
+  AuthResponse,
+  getAccessToken,
+  fetchWithAuth,
+  login as authLogin,
+  register as authRegister,
+  logout as authLogout,
+  clearTokens,
+  refreshAccessToken,
+  isTokenExpiringSoon,
+} from "@/lib/auth";
 
-async function fetchUser(): Promise<User | null> {
-  const response = await fetch("/api/auth/user", {
-    credentials: "include",
-  });
+async function fetchUser(): Promise<AuthUser | null> {
+  const token = getAccessToken();
+  if (!token) return null;
+
+  if (isTokenExpiringSoon()) {
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) return null;
+    return refreshed.user;
+  }
+
+  const response = await fetchWithAuth("/api/auth/user");
 
   if (response.status === 401) {
+    clearTokens();
     return null;
   }
 
@@ -17,23 +37,66 @@ async function fetchUser(): Promise<User | null> {
   return response.json();
 }
 
-async function logout(): Promise<void> {
-  window.location.href = "/api/logout";
-}
-
 export function useAuth() {
   const queryClient = useQueryClient();
-  const { data: user, isLoading } = useQuery<User | null>({
+  
+  const { data: user, isLoading, refetch } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/user"],
     queryFn: fetchUser,
     retry: false,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 4,
+  });
+
+  useEffect(() => {
+    if (!user && !isLoading) return;
+    
+    const interval = setInterval(async () => {
+      if (isTokenExpiringSoon() && getAccessToken()) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          queryClient.setQueryData(["/api/auth/user"], refreshed.user);
+        } else {
+          queryClient.setQueryData(["/api/auth/user"], null);
+        }
+      }
+    }, 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [user, isLoading, queryClient]);
+
+  const loginMutation = useMutation({
+    mutationFn: async ({ email, password }: { email: string; password: string }) => {
+      return authLogin(email, password);
+    },
+    onSuccess: (data: AuthResponse) => {
+      queryClient.setQueryData(["/api/auth/user"], data.user);
+    },
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async ({
+      email,
+      password,
+      firstName,
+      lastName,
+    }: {
+      email: string;
+      password: string;
+      firstName?: string;
+      lastName?: string;
+    }) => {
+      return authRegister(email, password, firstName, lastName);
+    },
+    onSuccess: (data: AuthResponse) => {
+      queryClient.setQueryData(["/api/auth/user"], data.user);
+    },
   });
 
   const logoutMutation = useMutation({
-    mutationFn: logout,
+    mutationFn: authLogout,
     onSuccess: () => {
       queryClient.setQueryData(["/api/auth/user"], null);
+      queryClient.clear();
     },
   });
 
@@ -41,7 +104,14 @@ export function useAuth() {
     user,
     isLoading,
     isAuthenticated: !!user,
+    login: loginMutation.mutateAsync,
+    isLoggingIn: loginMutation.isPending,
+    loginError: loginMutation.error,
+    register: registerMutation.mutateAsync,
+    isRegistering: registerMutation.isPending,
+    registerError: registerMutation.error,
     logout: logoutMutation.mutate,
     isLoggingOut: logoutMutation.isPending,
+    refetchUser: refetch,
   };
 }

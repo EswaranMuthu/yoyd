@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Loader2, 
@@ -257,7 +257,6 @@ export default function Dashboard() {
         <div className="p-4 border-t border-border/50">
           <div className="flex items-center gap-3 mb-4 px-2">
             <Avatar className="w-8 h-8 border border-border">
-              <AvatarImage src={user?.profileImageUrl || undefined} />
               <AvatarFallback className="bg-primary/10 text-primary text-xs">
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </AvatarFallback>
