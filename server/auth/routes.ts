@@ -11,6 +11,7 @@ import {
 import { isAuthenticated } from "./middleware";
 
 const registerSchema = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters").max(30, "Username must be at most 30 characters"),
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   firstName: z.string().optional(),
@@ -31,13 +32,19 @@ export function registerAuthRoutes(app: Express) {
     try {
       const input = registerSchema.parse(req.body);
 
-      const existingUser = await authStorage.getUserByEmail(input.email);
-      if (existingUser) {
+      const existingEmail = await authStorage.getUserByEmail(input.email);
+      if (existingEmail) {
         return res.status(400).json({ message: "Email already registered" });
+      }
+
+      const existingUsername = await authStorage.getUserByUsername(input.username);
+      if (existingUsername) {
+        return res.status(400).json({ message: "Username already taken" });
       }
 
       const passwordHash = await hashPassword(input.password);
       const user = await authStorage.createUser(
+        input.username,
         input.email,
         passwordHash,
         input.firstName,
@@ -53,6 +60,7 @@ export function registerAuthRoutes(app: Express) {
       res.status(201).json({
         user: {
           id: user.id,
+          username: user.username,
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
@@ -96,6 +104,7 @@ export function registerAuthRoutes(app: Express) {
       res.json({
         user: {
           id: user.id,
+          username: user.username,
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
@@ -146,6 +155,7 @@ export function registerAuthRoutes(app: Express) {
       res.json({
         user: {
           id: user.id,
+          username: user.username,
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,

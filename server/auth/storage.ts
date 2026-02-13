@@ -3,8 +3,9 @@ import { users, refreshTokens, type User } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 export interface IAuthStorage {
-  createUser(email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User>;
+  createUser(username: string, email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User>;
   getUserByEmail(email: string): Promise<User | null>;
+  getUserByUsername(username: string): Promise<User | null>;
   getUserById(id: string): Promise<User | null>;
   saveRefreshToken(userId: string, token: string, expiresAt: Date): Promise<void>;
   getRefreshToken(token: string): Promise<{ userId: string; expiresAt: Date } | null>;
@@ -13,10 +14,11 @@ export interface IAuthStorage {
 }
 
 export const authStorage: IAuthStorage = {
-  async createUser(email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User> {
+  async createUser(username: string, email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User> {
     const [user] = await db
       .insert(users)
       .values({
+        username,
         email,
         password: passwordHash,
         firstName: firstName || null,
@@ -28,6 +30,11 @@ export const authStorage: IAuthStorage = {
 
   async getUserByEmail(email: string): Promise<User | null> {
     const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    return user || null;
+  },
+
+  async getUserByUsername(username: string): Promise<User | null> {
+    const [user] = await db.select().from(users).where(eq(users.username, username)).limit(1);
     return user || null;
   },
 

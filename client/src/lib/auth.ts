@@ -4,6 +4,7 @@ const TOKEN_EXPIRY_KEY = "tokenExpiry";
 
 export interface AuthUser {
   id: string;
+  username: string;
   email: string;
   firstName?: string | null;
   lastName?: string | null;
@@ -103,6 +104,7 @@ export async function login(email: string, password: string): Promise<AuthRespon
 }
 
 export async function register(
+  username: string,
   email: string,
   password: string,
   firstName?: string,
@@ -111,7 +113,7 @@ export async function register(
   const response = await fetch("/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, firstName, lastName }),
+    body: JSON.stringify({ username, email, password, firstName, lastName }),
   });
 
   if (!response.ok) {

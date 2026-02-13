@@ -75,17 +75,19 @@ export function useAuth() {
 
   const registerMutation = useMutation({
     mutationFn: async ({
+      username,
       email,
       password,
       firstName,
       lastName,
     }: {
+      username: string;
       email: string;
       password: string;
       firstName?: string;
       lastName?: string;
     }) => {
-      return authRegister(email, password, firstName, lastName);
+      return authRegister(username, email, password, firstName, lastName);
     },
     onSuccess: (data: AuthResponse) => {
       queryClient.setQueryData(["/api/auth/user"], data.user);
