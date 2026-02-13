@@ -22,7 +22,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
   if (!isAuthenticated) {
     // Redirect to landing if not authenticated
-    // The backend handles the actual auth redirect via /api/login link
+    // Redirect to landing page for login
     return <Redirect to="/" />;
   }
 
