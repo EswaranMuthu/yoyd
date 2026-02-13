@@ -126,9 +126,10 @@ export async function registerRoutes(
       }
 
       res.json({ synced, deleted });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error syncing objects:", error);
-      res.status(500).json({ message: "Failed to sync objects" });
+      const detail = error?.message || "Unknown error";
+      res.status(500).json({ message: `Failed to sync objects: ${detail}` });
     }
   });
 

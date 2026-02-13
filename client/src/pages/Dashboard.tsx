@@ -120,11 +120,13 @@ export default function Dashboard() {
         title: "Sync complete",
         description: `Synced ${result.synced} objects, removed ${result.deleted} stale entries`,
       });
-    } catch {
+    } catch (error: any) {
+      const msg = error?.message || "Failed to sync with S3";
+      console.error("Sync error:", msg);
       toast({
         variant: "destructive",
         title: "Sync failed",
-        description: "Failed to sync with S3",
+        description: msg,
       });
     }
   }, [syncMutation, toast]);
