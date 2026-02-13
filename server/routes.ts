@@ -78,7 +78,11 @@ export async function registerRoutes(
       const username = req.authUser!.username;
       const userPrefix = getUserPrefix(username);
 
-      await createS3Folder(userPrefix).catch(() => {});
+      try {
+        await createS3Folder(userPrefix);
+      } catch (folderErr) {
+        console.error("Error creating user folder in S3:", folderErr);
+      }
 
       const s3Objects = await listAllS3Objects(userPrefix);
       const dbObjects = await storage.getObjectsByKeyPrefix(userPrefix);
