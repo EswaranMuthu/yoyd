@@ -63,8 +63,7 @@ export function useConfirmUpload() {
 export function useGetDownloadUrl() {
   return useMutation<{ url: string }, Error, number>({
     mutationFn: async (id) => {
-      const res = await fetch(`/api/objects/${id}/download`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to get download URL");
+      const res = await apiRequest("GET", `/api/objects/${id}/download`);
       return res.json();
     },
   });

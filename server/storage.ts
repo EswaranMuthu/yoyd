@@ -6,6 +6,8 @@ export interface IStorage {
   getObjects(parentKey?: string | null): Promise<S3Object[]>;
   getObject(id: number): Promise<S3Object | undefined>;
   getObjectByKey(key: string): Promise<S3Object | undefined>;
+  getObjectsByPrefix(parentKey: string): Promise<S3Object[]>;
+  getObjectsByKeyPrefix(prefix: string): Promise<S3Object[]>;
   createObject(object: InsertS3Object): Promise<S3Object>;
   updateObject(key: string, updates: Partial<InsertS3Object>): Promise<S3Object | undefined>;
   deleteObject(key: string): Promise<void>;
@@ -21,6 +23,14 @@ export class DatabaseStorage implements IStorage {
       return await db.select().from(s3Objects).where(isNull(s3Objects.parentKey));
     }
     return await db.select().from(s3Objects).where(eq(s3Objects.parentKey, parentKey));
+  }
+
+  async getObjectsByPrefix(parentKey: string): Promise<S3Object[]> {
+    return await db.select().from(s3Objects).where(eq(s3Objects.parentKey, parentKey));
+  }
+
+  async getObjectsByKeyPrefix(prefix: string): Promise<S3Object[]> {
+    return await db.select().from(s3Objects).where(like(s3Objects.key, `${prefix}%`));
   }
 
   async getObject(id: number): Promise<S3Object | undefined> {

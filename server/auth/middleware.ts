@@ -4,6 +4,7 @@ import { authStorage } from "./storage";
 
 export interface AuthUser {
   id: string;
+  username: string;
   email: string;
   firstName?: string | null;
   lastName?: string | null;
@@ -38,6 +39,7 @@ export function isAuthenticated(req: Request, res: Response, next: NextFunction)
 
     req.authUser = {
       id: user.id,
+      username: user.username,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,

@@ -2,7 +2,7 @@
 
 ## Overview
 
-yoyd (you own your data) is a web application that provides a beautiful interface for browsing and managing AWS S3 bucket contents. Users can browse files, upload content, create folders, and organize cloud storage with JWT-based username/password authentication.
+yoyd (you own your data) is a multi-tenant web application that provides a beautiful interface for browsing and managing AWS S3 bucket contents. Each user has isolated storage under `users/{username}/` in S3 but sees clean paths without the prefix. Users can browse files, upload content, create folders, and organize cloud storage with JWT-based username/password authentication.
 
 ## User Preferences
 
@@ -75,9 +75,14 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 - **Provider**: PostgreSQL (Neon, Supabase, or similar)
 - **Required Environment Variable**: `DATABASE_URL`
 
+### Multi-Tenancy
+- All S3 operations scoped to `users/{username}/` prefix per user
+- Helper functions `addUserPrefix()`, `stripUserPrefix()`, `stripPrefixFromObject()` in `server/routes.ts`
+- Users see clean paths (e.g., `/photos/` instead of `users/john/photos/`)
+- Download and delete operations validate user ownership before proceeding
+- User folder auto-created in S3 on first sync
+
 ### Authentication
-- **Provider**: Replit Auth (OpenID Connect)
+- **Provider**: JWT (username/password)
 - **Required Environment Variables**:
-  - `ISSUER_URL` (defaults to https://replit.com/oidc)
-  - `REPL_ID`
   - `SESSION_SECRET`

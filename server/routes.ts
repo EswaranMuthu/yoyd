@@ -16,7 +16,39 @@ import {
   getObjectMetadata,
   getMimeType,
 } from "./s3";
-import type { InsertS3Object } from "@shared/schema";
+import type { InsertS3Object, S3Object } from "@shared/schema";
+
+function getUserPrefix(username: string): string {
+  return `users/${username}/`;
+}
+
+function addUserPrefix(key: string, username: string): string {
+  const prefix = getUserPrefix(username);
+  if (key.startsWith(prefix)) return key;
+  return `${prefix}${key}`;
+}
+
+function stripUserPrefix(key: string, username: string): string {
+  const prefix = getUserPrefix(username);
+  if (key.startsWith(prefix)) {
+    return key.slice(prefix.length);
+  }
+  return key;
+}
+
+function stripPrefixFromObject(obj: S3Object, username: string): S3Object {
+  const prefix = getUserPrefix(username);
+  let strippedParentKey: string | null = null;
+  if (obj.parentKey) {
+    const stripped = stripUserPrefix(obj.parentKey, username);
+    strippedParentKey = stripped === "" ? null : stripped;
+  }
+  return {
+    ...obj,
+    key: stripUserPrefix(obj.key, username),
+    parentKey: strippedParentKey,
+  };
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -27,9 +59,14 @@ export async function registerRoutes(
 
   app.get(api.objects.list.path, isAuthenticated, async (req, res) => {
     try {
-      const prefix = (req.query.prefix as string) || "";
-      const objects = await storage.getObjects(prefix || null);
-      res.json(objects);
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
+      const clientPrefix = (req.query.prefix as string) || "";
+      const fullPrefix = clientPrefix ? addUserPrefix(clientPrefix, username) : userPrefix;
+
+      const objects = await storage.getObjectsByPrefix(fullPrefix);
+      const stripped = objects.map((obj) => stripPrefixFromObject(obj, username));
+      res.json(stripped);
     } catch (error) {
       console.error("Error listing objects:", error);
       res.status(500).json({ message: "Failed to list objects" });
@@ -38,20 +75,24 @@ export async function registerRoutes(
 
   app.post(api.objects.sync.path, isAuthenticated, async (req, res) => {
     try {
-      const s3Objects = await listAllS3Objects();
-      const dbObjects = await storage.getAllObjects();
-      const dbKeySet = new Set(dbObjects.map((o) => o.key));
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
+
+      await createS3Folder(userPrefix).catch(() => {});
+
+      const s3Objects = await listAllS3Objects(userPrefix);
+      const dbObjects = await storage.getObjectsByKeyPrefix(userPrefix);
       const s3KeySet = new Set(s3Objects.map((o) => o.key));
 
       let synced = 0;
       let deleted = 0;
 
       for (const s3Obj of s3Objects) {
+        if (s3Obj.key === userPrefix) continue;
+
         const parts = s3Obj.key.split("/").filter((p) => p);
-        const name = s3Obj.isFolder 
-          ? parts[parts.length - 1] || s3Obj.key 
-          : parts[parts.length - 1] || s3Obj.key;
-        
+        const name = parts[parts.length - 1] || s3Obj.key;
+
         let parentKey: string | null = null;
         if (parts.length > 1) {
           parentKey = parts.slice(0, -1).join("/") + "/";
@@ -73,6 +114,7 @@ export async function registerRoutes(
       }
 
       for (const dbObj of dbObjects) {
+        if (dbObj.key === userPrefix) continue;
         if (!s3KeySet.has(dbObj.key)) {
           await storage.deleteObject(dbObj.key);
           deleted++;
@@ -88,23 +130,27 @@ export async function registerRoutes(
 
   app.post(api.objects.createFolder.path, isAuthenticated, async (req, res) => {
     try {
+      const username = req.authUser!.username;
       const input = api.objects.createFolder.input.parse(req.body);
-      const folderKey = input.parentKey 
-        ? `${input.parentKey}${input.name}/`
-        : `${input.name}/`;
+
+      const parentKey = input.parentKey
+        ? addUserPrefix(input.parentKey, username)
+        : getUserPrefix(username);
+
+      const folderKey = `${parentKey}${input.name}/`;
 
       await createS3Folder(folderKey);
 
       const parts = folderKey.split("/").filter((p) => p);
-      let parentKey: string | null = null;
+      let dbParentKey: string | null = null;
       if (parts.length > 1) {
-        parentKey = parts.slice(0, -1).join("/") + "/";
+        dbParentKey = parts.slice(0, -1).join("/") + "/";
       }
 
       const insertObj: InsertS3Object = {
         key: folderKey,
         name: input.name,
-        parentKey,
+        parentKey: dbParentKey,
         isFolder: true,
         size: null,
         mimeType: null,
@@ -113,7 +159,7 @@ export async function registerRoutes(
       };
 
       const folder = await storage.createObject(insertObj);
-      res.status(201).json(folder);
+      res.status(201).json(stripPrefixFromObject(folder, username));
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
@@ -128,13 +174,17 @@ export async function registerRoutes(
 
   app.post(api.objects.uploadUrl.path, isAuthenticated, async (req, res) => {
     try {
+      const username = req.authUser!.username;
       const input = api.objects.uploadUrl.input.parse(req.body);
-      const key = input.parentKey
-        ? `${input.parentKey}${input.fileName}`
-        : input.fileName;
+
+      const parentKey = input.parentKey
+        ? addUserPrefix(input.parentKey, username)
+        : getUserPrefix(username);
+
+      const key = `${parentKey}${input.fileName}`;
 
       const url = await getPresignedUploadUrl(key, input.mimeType);
-      res.json({ url, key });
+      res.json({ url, key: stripUserPrefix(key, username) });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
@@ -149,22 +199,25 @@ export async function registerRoutes(
 
   app.post(api.objects.confirmUpload.path, isAuthenticated, async (req, res) => {
     try {
+      const username = req.authUser!.username;
       const input = api.objects.confirmUpload.input.parse(req.body);
-      const metadata = await getObjectMetadata(input.key);
+      const fullKey = addUserPrefix(input.key, username);
+
+      const metadata = await getObjectMetadata(fullKey);
 
       if (!metadata) {
         return res.status(400).json({ message: "Object not found in S3" });
       }
 
-      const parts = input.key.split("/").filter((p) => p);
-      const name = parts[parts.length - 1] || input.key;
+      const parts = fullKey.split("/").filter((p) => p);
+      const name = parts[parts.length - 1] || fullKey;
       let parentKey: string | null = null;
       if (parts.length > 1) {
         parentKey = parts.slice(0, -1).join("/") + "/";
       }
 
       const insertObj: InsertS3Object = {
-        key: input.key,
+        key: fullKey,
         name,
         parentKey,
         isFolder: false,
@@ -175,7 +228,7 @@ export async function registerRoutes(
       };
 
       const object = await storage.upsertObject(insertObj);
-      res.json(object);
+      res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
@@ -190,11 +243,17 @@ export async function registerRoutes(
 
   app.get(api.objects.downloadUrl.path, isAuthenticated, async (req, res) => {
     try {
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
       const id = Number(req.params.id);
       const object = await storage.getObject(id);
 
       if (!object) {
         return res.status(404).json({ message: "Object not found" });
+      }
+
+      if (!object.key.startsWith(userPrefix)) {
+        return res.status(403).json({ message: "Access denied" });
       }
 
       if (object.isFolder) {
@@ -211,14 +270,22 @@ export async function registerRoutes(
 
   app.delete(api.objects.delete.path, isAuthenticated, async (req, res) => {
     try {
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
       const input = api.objects.delete.input.parse(req.body);
       
       const allKeysToDelete: string[] = [];
       
-      for (const key of input.keys) {
-        allKeysToDelete.push(key);
-        if (key.endsWith("/")) {
-          const s3Objects = await listAllS3Objects(key);
+      for (const clientKey of input.keys) {
+        const fullKey = addUserPrefix(clientKey, username);
+
+        if (!fullKey.startsWith(userPrefix)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+
+        allKeysToDelete.push(fullKey);
+        if (fullKey.endsWith("/")) {
+          const s3Objects = await listAllS3Objects(fullKey);
           for (const obj of s3Objects) {
             allKeysToDelete.push(obj.key);
           }
