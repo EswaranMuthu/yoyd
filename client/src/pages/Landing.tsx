@@ -172,7 +172,7 @@ export default function Landing() {
       </footer>
 
       <Dialog open={showAuth} onOpenChange={setShowAuth}>
-        <DialogContent className="sm:max-w-[440px] p-0 overflow-hidden border-0 shadow-2xl">
+        <DialogContent className="sm:max-w-[440px] p-0 border-0 shadow-2xl max-h-[90vh] overflow-y-auto">
           <div className="bg-gradient-to-br from-violet-600 via-fuchsia-500 to-amber-500 p-6 pb-8 text-white">
             <DialogHeader>
               <div className="flex items-center gap-3 mb-2">
