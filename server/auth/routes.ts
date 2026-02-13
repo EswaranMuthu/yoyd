@@ -28,6 +28,18 @@ const refreshSchema = z.object({
 });
 
 export function registerAuthRoutes(app: Express) {
+  app.get("/api/login", (_req, res) => {
+    res.redirect("/");
+  });
+
+  app.get("/api/callback", (_req, res) => {
+    res.redirect("/");
+  });
+
+  app.get("/api/logout", (_req, res) => {
+    res.redirect("/");
+  });
+
   app.post("/api/auth/register", async (req, res) => {
     try {
       const input = registerSchema.parse(req.body);
