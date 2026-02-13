@@ -90,7 +90,7 @@ export default function Landing() {
               </h1>
               
               <p className="text-lg text-muted-foreground mb-8 max-w-xl leading-relaxed">
-                A beautiful interface for managing your AWS S3 buckets. Browse files, upload content, create folders, and organize your cloud storage effortlessly.
+                Cloud Storage Built for Photographers Everywhere.
               </p>
 
               <div className="hidden lg:grid grid-cols-3 gap-4">
