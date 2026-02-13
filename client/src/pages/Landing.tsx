@@ -70,10 +70,8 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-md bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-violet-500/30">
-                H
-              </div>
-              <span className="text-xl font-bold font-display tracking-tight text-foreground">hexaprotal1</span>
+              <img src="/favicon.png" alt="yoyd" className="w-9 h-9 rounded-md shadow-lg shadow-violet-500/30" />
+              <span className="text-xl font-bold font-display tracking-tight text-foreground">yoyd</span>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -167,7 +165,7 @@ export default function Landing() {
 
       <footer className="py-8 border-t border-border/50">
         <div className="max-w-7xl mx-auto px-4 text-center text-muted-foreground text-sm">
-          <p>&copy; 2024 hexaprotal1. All rights reserved.</p>
+          <p>&copy; 2024 yoyd. All rights reserved.</p>
         </div>
       </footer>
 
@@ -176,10 +174,8 @@ export default function Landing() {
           <div className="bg-gradient-to-br from-violet-600 via-fuchsia-500 to-amber-500 p-6 pb-8 text-white">
             <DialogHeader>
               <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 rounded-md bg-white/20 backdrop-blur-sm flex items-center justify-center font-bold text-lg">
-                  H
-                </div>
-                <span className="text-lg font-bold font-display">hexaprotal1</span>
+                <img src="/favicon.png" alt="yoyd" className="w-10 h-10 rounded-md bg-white/20 backdrop-blur-sm" />
+                <span className="text-lg font-bold font-display">yoyd</span>
               </div>
               <DialogTitle className="text-2xl font-bold text-white" data-testid="text-dialog-title">
                 {mode === "login" ? "Welcome back" : "Create an account"}

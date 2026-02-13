@@ -1,8 +1,8 @@
-# hexaprotal1 - S3 Storage Browser
+# yoyd - S3 Storage Browser
 
 ## Overview
 
-hexaprotal1 is a web application that provides a beautiful interface for browsing and managing AWS S3 bucket contents. Users can browse files, upload content, create folders, and organize cloud storage with authentication handled through Replit Auth (OpenID Connect).
+yoyd (you own your data) is a web application that provides a beautiful interface for browsing and managing AWS S3 bucket contents. Users can browse files, upload content, create folders, and organize cloud storage with JWT-based username/password authentication.
 
 ## User Preferences
 

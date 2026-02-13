@@ -240,10 +240,8 @@ export default function Dashboard() {
       <aside className="w-64 bg-card border-r border-border hidden md:flex flex-col fixed h-full z-10">
         <div className="p-6 border-b border-border/50">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold font-display shadow-lg shadow-primary/25">
-              H
-            </div>
-            <span className="text-lg font-bold font-display tracking-tight">hexaprotal1</span>
+            <img src="/favicon.png" alt="yoyd" className="w-8 h-8 rounded-lg shadow-lg shadow-primary/25" />
+            <span className="text-lg font-bold font-display tracking-tight">yoyd</span>
           </div>
         </div>
         

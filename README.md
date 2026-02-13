@@ -1,6 +1,6 @@
-# Hexaprotal1 - S3 Storage Browser for Photographers
+# yoyd - S3 Storage Browser for Photographers
 
-A full-stack web application that provides an elegant, colorful interface for browsing and managing AWS S3 bucket contents. Designed with photographers in mind, it lets users browse files, upload content, create folders, and organize cloud storage with a vibrant, modern UI.
+**yoyd** (you own your data) is a full-stack web application that provides an elegant, colorful interface for browsing and managing AWS S3 bucket contents. Designed with photographers in mind, it lets users browse files, upload content, create folders, and organize cloud storage with a vibrant, modern UI.
 
 ---
 
@@ -17,7 +17,7 @@ A full-stack web application that provides an elegant, colorful interface for br
                        | JWT Bearer Token Auth
                        |
 +----------------------+-----------------------+
-|           Backend (Express.js)               |
+|          Backend (Express.js)                |
 |  Node.js + TypeScript (ESM)                  |
 |                                              |
 |  +----------+  +-----------+  +----------+   |
@@ -200,7 +200,7 @@ Frontend (React)                         Backend (Express)
 ## Project Structure
 
 ```
-hexaprotal1/
+yoyd/
 +-- client/                     # Frontend (React SPA)
 |   +-- src/
 |       +-- components/ui/      # shadcn/ui reusable components
