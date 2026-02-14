@@ -1,6 +1,8 @@
 import { useState, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { useS3Objects, useSyncObjects, useCreateFolder, useGetUploadUrl, useConfirmUpload, useGetDownloadUrl, useDeleteObjects } from "@/hooks/use-s3";
+import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects } from "@/hooks/use-s3";
+import { fetchWithAuth } from "@/lib/auth";
+import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -76,8 +78,6 @@ export default function Dashboard() {
   const { data: objects, isLoading } = useS3Objects(currentPath);
   const syncMutation = useSyncObjects();
   const createFolderMutation = useCreateFolder();
-  const getUploadUrlMutation = useGetUploadUrl();
-  const confirmUploadMutation = useConfirmUpload();
   const getDownloadUrlMutation = useGetDownloadUrl();
   const deleteMutation = useDeleteObjects();
 
@@ -161,41 +161,42 @@ export default function Dashboard() {
     setIsUploading(true);
     try {
       for (const file of Array.from(files)) {
-        const { url, key } = await getUploadUrlMutation.mutateAsync({
-          fileName: file.name,
-          mimeType: file.type || "application/octet-stream",
-          parentKey: currentPath || undefined,
-        });
-
-        const uploadRes = await fetch(url, {
-          method: "PUT",
-          body: file,
-          headers: {
-            "Content-Type": file.type || "application/octet-stream",
-          },
-        });
-
-        if (!uploadRes.ok) {
-          throw new Error(`Failed to upload ${file.name}`);
+        const formData = new FormData();
+        formData.append("file", file);
+        if (currentPath) {
+          formData.append("parentKey", currentPath);
         }
 
-        await confirmUploadMutation.mutateAsync({ key });
+        const res = await fetchWithAuth("/api/objects/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: "Upload failed" }));
+          throw new Error(err.message || `Failed to upload ${file.name}`);
+        }
       }
+
+      queryClient.invalidateQueries({ predicate: (query) =>
+        typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects")
+      });
+
       toast({
         title: "Upload complete",
         description: `Uploaded ${files.length} file(s)`,
       });
-    } catch {
+    } catch (error) {
       toast({
         variant: "destructive",
         title: "Upload failed",
-        description: "Failed to upload file(s)",
+        description: error instanceof Error ? error.message : "Failed to upload file(s)",
       });
     } finally {
       setIsUploading(false);
       e.target.value = "";
     }
-  }, [currentPath, getUploadUrlMutation, confirmUploadMutation, toast]);
+  }, [currentPath, toast]);
 
   const handleDelete = useCallback(async () => {
     if (selectedKeys.size === 0) return;

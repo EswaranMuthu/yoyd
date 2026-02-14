@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import multer from "multer";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { registerAuthRoutes } from "./auth/routes";
@@ -15,6 +16,7 @@ import {
   deleteS3Objects,
   getObjectMetadata,
   getMimeType,
+  uploadToS3,
 } from "./s3";
 import type { InsertS3Object, S3Object } from "@shared/schema";
 
@@ -199,6 +201,61 @@ export async function registerRoutes(
       }
       console.error("Error generating upload URL:", error);
       res.status(500).json({ message: "Failed to generate upload URL" });
+    }
+  });
+
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+
+  app.post("/api/objects/upload", isAuthenticated, upload.single("file"), async (req, res) => {
+    try {
+      const username = req.authUser!.username;
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ message: "No file provided" });
+      }
+
+      const sanitizedName = file.originalname.replace(/[/\\]/g, "_").replace(/\.\./g, "_");
+      if (!sanitizedName || sanitizedName.startsWith(".")) {
+        return res.status(400).json({ message: "Invalid file name" });
+      }
+
+      if (req.body.parentKey && /\.\./.test(req.body.parentKey)) {
+        return res.status(400).json({ message: "Invalid parent path" });
+      }
+
+      const parentKey = req.body.parentKey
+        ? addUserPrefix(req.body.parentKey, username)
+        : getUserPrefix(username);
+
+      const key = `${parentKey}${sanitizedName}`;
+      const contentType = file.mimetype || "application/octet-stream";
+
+      await uploadToS3(key, file.buffer, contentType);
+
+      const strippedKey = stripUserPrefix(key, username);
+      const parts = key.split("/").filter((p: string) => p);
+      const name = parts[parts.length - 1] || key;
+      let objParentKey: string | null = null;
+      if (parts.length > 1) {
+        objParentKey = parts.slice(0, -1).join("/") + "/";
+      }
+
+      const insertObj: InsertS3Object = {
+        key,
+        name,
+        parentKey: objParentKey,
+        isFolder: false,
+        size: file.size,
+        mimeType: contentType,
+        etag: null,
+        lastModified: new Date(),
+      };
+
+      const object = await storage.upsertObject(insertObj);
+      res.json(stripPrefixFromObject(object, username));
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      res.status(500).json({ message: "Failed to upload file" });
     }
   });
 
