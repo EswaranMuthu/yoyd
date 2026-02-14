@@ -17,22 +17,37 @@ export async function apiRequest(
     await refreshAccessToken();
   }
 
-  const token = getAccessToken();
-  const headers: Record<string, string> = {};
-  
-  if (data) {
-    headers["Content-Type"] = "application/json";
-  }
-  
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  const makeRequest = async () => {
+    const token = getAccessToken();
+    const headers: Record<string, string> = {};
+    
+    if (data) {
+      headers["Content-Type"] = "application/json";
+    }
+    
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-  });
+    return fetch(url, {
+      method,
+      headers,
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  };
+
+  let res = await makeRequest();
+
+  if (res.status === 401 && getAccessToken()) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      res = await makeRequest();
+    } else {
+      clearTokens();
+      window.location.href = "/";
+      throw new Error("Session expired. Please log in again.");
+    }
+  }
 
   await throwIfResNotOk(res);
   return res;

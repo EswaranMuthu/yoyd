@@ -76,14 +76,30 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     await refreshAccessToken();
   }
 
-  const token = getAccessToken();
-  const headers = new Headers(options.headers);
-  
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  const makeRequest = async () => {
+    const token = getAccessToken();
+    const headers = new Headers(options.headers);
+    
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+
+    return fetch(url, { ...options, headers });
+  };
+
+  let res = await makeRequest();
+
+  if (res.status === 401 && getAccessToken()) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      res = await makeRequest();
+    } else {
+      clearTokens();
+      window.location.href = "/";
+    }
   }
 
-  return fetch(url, { ...options, headers });
+  return res;
 }
 
 export async function login(email: string, password: string): Promise<AuthResponse> {
