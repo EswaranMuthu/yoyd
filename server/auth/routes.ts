@@ -79,7 +79,7 @@ export function registerAuthRoutes(app: Express) {
         },
         accessToken,
         refreshToken,
-        expiresIn: 300,
+        expiresIn: 900,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -123,7 +123,7 @@ export function registerAuthRoutes(app: Express) {
         },
         accessToken,
         refreshToken,
-        expiresIn: 300,
+        expiresIn: 900,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -174,7 +174,7 @@ export function registerAuthRoutes(app: Express) {
         },
         accessToken,
         refreshToken: newRefreshToken,
-        expiresIn: 300,
+        expiresIn: 900,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
