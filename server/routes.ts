@@ -82,8 +82,12 @@ export async function registerRoutes(
 
       try {
         await createS3Folder(userPrefix);
+        const defaultFolders = ["downloads/", "documents/", "photos/"];
+        for (const folder of defaultFolders) {
+          await createS3Folder(`${userPrefix}${folder}`);
+        }
       } catch (folderErr) {
-        console.error("Error creating user folder in S3:", folderErr);
+        console.error("Error creating user folders in S3:", folderErr);
       }
 
       const s3Objects = await listAllS3Objects(userPrefix);
