@@ -30,7 +30,9 @@ import {
   ChevronRight,
   Home,
   Download,
-  HardDrive
+  HardDrive,
+  X,
+  Eye
 } from "lucide-react";
 import { format } from "date-fns";
 import type { S3Object } from "@shared/schema";
@@ -74,6 +76,8 @@ export default function Dashboard() {
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string; size: number | null } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const { data: objects, isLoading } = useS3Objects(currentPath);
   const syncMutation = useSyncObjects();
@@ -98,8 +102,29 @@ export default function Dashboard() {
     }
   }, [navigateTo]);
 
+  const isImageFile = useCallback((object: S3Object) => {
+    const mimeType = object.mimeType || "";
+    return mimeType.startsWith("image/");
+  }, []);
+
   const handleFileClick = useCallback(async (object: S3Object) => {
-    if (!object.isFolder) {
+    if (object.isFolder) return;
+
+    if (isImageFile(object)) {
+      setPreviewLoading(true);
+      try {
+        const result = await getDownloadUrlMutation.mutateAsync(object.id);
+        setPreviewImage({ url: result.url, name: object.name, size: object.size });
+      } catch {
+        toast({
+          variant: "destructive",
+          title: "Preview failed",
+          description: "Failed to load image preview",
+        });
+      } finally {
+        setPreviewLoading(false);
+      }
+    } else {
       try {
         const result = await getDownloadUrlMutation.mutateAsync(object.id);
         window.open(result.url, "_blank");
@@ -111,7 +136,13 @@ export default function Dashboard() {
         });
       }
     }
-  }, [getDownloadUrlMutation, toast]);
+  }, [getDownloadUrlMutation, toast, isImageFile]);
+
+  const handleDownloadFromPreview = useCallback(() => {
+    if (previewImage) {
+      window.open(previewImage.url, "_blank");
+    }
+  }, [previewImage]);
 
   const handleSync = useCallback(async () => {
     try {
@@ -488,9 +519,13 @@ export default function Dashboard() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleFileClick(object)}
-                            data-testid={`button-download-${object.id}`}
+                            data-testid={`button-action-${object.id}`}
                           >
-                            <Download className="w-4 h-4" />
+                            {isImageFile(object) ? (
+                              <Eye className="w-4 h-4" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
                           </Button>
                         )}
                       </TableCell>
@@ -523,6 +558,62 @@ export default function Dashboard() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={!!previewImage} onOpenChange={(open) => { if (!open) setPreviewImage(null); }}>
+          <DialogContent
+            className="max-w-[95vw] max-h-[95vh] w-auto p-0 border-none bg-black/90 overflow-hidden"
+            data-testid="image-preview-overlay"
+          >
+            <DialogHeader className="sr-only">
+              <DialogTitle>{previewImage?.name ?? "Image Preview"}</DialogTitle>
+              <DialogDescription>Preview of {previewImage?.name ?? "image"}</DialogDescription>
+            </DialogHeader>
+            <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setPreviewImage(null)}
+                  className="bg-background/80 backdrop-blur-sm"
+                  data-testid="button-close-preview"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+                <div className="bg-background/80 backdrop-blur-sm rounded-md px-3 py-1.5">
+                  <p className="text-sm font-medium truncate max-w-xs" data-testid="text-preview-name">{previewImage?.name}</p>
+                  {previewImage?.size && (
+                    <p className="text-xs text-muted-foreground">{formatFileSize(previewImage.size)}</p>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleDownloadFromPreview}
+                className="bg-background/80 backdrop-blur-sm"
+                data-testid="button-preview-download"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download
+              </Button>
+            </div>
+            {previewImage && (
+              <div className="flex items-center justify-center p-4 pt-14 min-h-[50vh]">
+                <img
+                  src={previewImage.url}
+                  alt={previewImage.name}
+                  className="max-w-full max-h-[80vh] object-contain rounded-md"
+                  data-testid="image-preview"
+                />
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {previewLoading && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="status" aria-label="Loading preview">
+            <Loader2 className="w-10 h-10 animate-spin text-white" />
+          </div>
+        )}
       </main>
     </div>
   );
