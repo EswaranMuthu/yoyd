@@ -211,9 +211,9 @@ export default function Landing() {
           </div>
 
           <h1 className="text-5xl lg:text-7xl font-bold font-display tracking-tight text-foreground mb-6 leading-tight">
-            Browse your cloud storage{" "}
+            You Own It.{" "}
             <span className="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-amber-500 bg-clip-text text-transparent">
-              with clarity
+              We Just Help You See It.
             </span>
           </h1>
 
