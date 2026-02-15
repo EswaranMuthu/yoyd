@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,7 +49,7 @@ export default function Landing() {
   const [lastName, setLastName] = useState("");
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [googleScriptLoaded, setGoogleScriptLoaded] = useState(false);
-  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const googleBtnRef = useRef<HTMLDivElement | null>(null);
   const { login, register, googleLogin, isLoggingIn, isRegistering, isGoogleLoggingIn, loginError, registerError } = useAuth();
   const { toast } = useToast();
 
@@ -97,14 +97,14 @@ export default function Landing() {
     document.head.appendChild(script);
   }, [googleClientId, googleScriptLoaded]);
 
-  useEffect(() => {
-    if (!googleClientId || !googleScriptLoaded || !window.google || !showAuth || !googleBtnRef.current) return;
-    googleBtnRef.current.innerHTML = "";
+  const renderGoogleButton = useCallback((container: HTMLDivElement) => {
+    if (!googleClientId || !window.google) return;
+    container.innerHTML = "";
     window.google.accounts.id.initialize({
       client_id: googleClientId,
       callback: handleGoogleCallback,
     });
-    window.google.accounts.id.renderButton(googleBtnRef.current, {
+    window.google.accounts.id.renderButton(container, {
       theme: "outline",
       size: "large",
       width: 392,
@@ -112,7 +112,20 @@ export default function Landing() {
       shape: "rectangular",
       logo_alignment: "left",
     });
-  }, [googleClientId, googleScriptLoaded, showAuth, handleGoogleCallback]);
+  }, [googleClientId, handleGoogleCallback]);
+
+  const googleBtnCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    googleBtnRef.current = node;
+    if (node && googleScriptLoaded) {
+      renderGoogleButton(node);
+    }
+  }, [googleScriptLoaded, renderGoogleButton]);
+
+  useEffect(() => {
+    if (googleScriptLoaded && googleBtnRef.current) {
+      renderGoogleButton(googleBtnRef.current);
+    }
+  }, [googleScriptLoaded, renderGoogleButton]);
 
   function openRegister() {
     setMode("register");
@@ -398,7 +411,7 @@ export default function Landing() {
                       </div>
                     )}
                     <div
-                      ref={googleBtnRef}
+                      ref={googleBtnCallbackRef}
                       className="flex justify-center"
                       data-testid="google-signin-button"
                     />
