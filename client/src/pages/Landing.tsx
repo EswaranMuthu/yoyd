@@ -251,8 +251,8 @@ export default function Landing() {
             <FeatureCard
               icon={<Shield className="w-6 h-6" />}
               gradient="from-emerald-500 to-teal-600"
-              title="Secure Access"
-              description="JWT-based authentication keeps your data protected."
+              title="Your Files, Locked Down"
+              description="Your account and files are protected with bank-level security. Only you can access your data."
             />
             <FeatureCard
               icon={<Image className="w-6 h-6" />}
