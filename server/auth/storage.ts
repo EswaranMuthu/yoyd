@@ -4,9 +4,12 @@ import { eq } from "drizzle-orm";
 
 export interface IAuthStorage {
   createUser(username: string, email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User>;
+  createGoogleUser(username: string, email: string, googleSub: string, firstName?: string, lastName?: string, profileImageUrl?: string): Promise<User>;
+  linkGoogleAccount(userId: string, googleSub: string, profileImageUrl?: string): Promise<void>;
   getUserByEmail(email: string): Promise<User | null>;
   getUserByUsername(username: string): Promise<User | null>;
   getUserById(id: string): Promise<User | null>;
+  getUserByGoogleSub(googleSub: string): Promise<User | null>;
   saveRefreshToken(userId: string, token: string, expiresAt: Date): Promise<void>;
   getRefreshToken(token: string): Promise<{ userId: string; expiresAt: Date } | null>;
   deleteRefreshToken(token: string): Promise<void>;
@@ -28,6 +31,17 @@ export const authStorage: IAuthStorage = {
     return user;
   },
 
+  async linkGoogleAccount(userId: string, googleSub: string, profileImageUrl?: string): Promise<void> {
+    await db
+      .update(users)
+      .set({
+        authProvider: "google",
+        googleSub,
+        ...(profileImageUrl ? { profileImageUrl } : {}),
+      })
+      .where(eq(users.id, userId));
+  },
+
   async getUserByEmail(email: string): Promise<User | null> {
     const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
     return user || null;
@@ -38,8 +52,30 @@ export const authStorage: IAuthStorage = {
     return user || null;
   },
 
+  async createGoogleUser(username: string, email: string, googleSub: string, firstName?: string, lastName?: string, profileImageUrl?: string): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        username,
+        email,
+        password: null,
+        authProvider: "google",
+        googleSub,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        profileImageUrl: profileImageUrl || null,
+      })
+      .returning();
+    return user;
+  },
+
   async getUserById(id: string): Promise<User | null> {
     const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    return user || null;
+  },
+
+  async getUserByGoogleSub(googleSub: string): Promise<User | null> {
+    const [user] = await db.select().from(users).where(eq(users.googleSub, googleSub)).limit(1);
     return user || null;
   },
 

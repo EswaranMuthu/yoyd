@@ -7,6 +7,7 @@ import {
   fetchWithAuth,
   login as authLogin,
   register as authRegister,
+  googleLogin as authGoogleLogin,
   logout as authLogout,
   clearTokens,
   refreshAccessToken,
@@ -94,6 +95,15 @@ export function useAuth() {
     },
   });
 
+  const googleLoginMutation = useMutation({
+    mutationFn: async ({ credential }: { credential: string }) => {
+      return authGoogleLogin(credential);
+    },
+    onSuccess: (data: AuthResponse) => {
+      queryClient.setQueryData(["/api/auth/user"], data.user);
+    },
+  });
+
   const logoutMutation = useMutation({
     mutationFn: authLogout,
     onSuccess: () => {
@@ -112,6 +122,9 @@ export function useAuth() {
     register: registerMutation.mutateAsync,
     isRegistering: registerMutation.isPending,
     registerError: registerMutation.error,
+    googleLogin: googleLoginMutation.mutateAsync,
+    isGoogleLoggingIn: googleLoginMutation.isPending,
+    googleLoginError: googleLoginMutation.error,
     logout: logoutMutation.mutate,
     isLoggingOut: logoutMutation.isPending,
     refetchUser: refetch,

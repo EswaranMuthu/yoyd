@@ -1,5 +1,6 @@
 import { Express } from "express";
 import { z } from "zod";
+import { OAuth2Client } from "google-auth-library";
 import { authStorage } from "./storage";
 import {
   generateAccessToken,
@@ -100,6 +101,10 @@ export function registerAuthRoutes(app: Express) {
       const user = await authStorage.getUserByEmail(input.email);
       if (!user) {
         return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      if (user.authProvider === "google" || !user.password) {
+        return res.status(400).json({ message: "This account uses Google sign-in. Please use the Google button to log in." });
       }
 
       const validPassword = await comparePassword(input.password, user.password);
@@ -205,5 +210,96 @@ export function registerAuthRoutes(app: Express) {
       return res.status(401).json({ message: "Not authenticated" });
     }
     res.json(req.authUser);
+  });
+
+  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
+
+  app.post("/api/auth/google", async (req, res) => {
+    try {
+      if (!googleClient || !googleClientId) {
+        return res.status(500).json({ message: "Google login is not configured" });
+      }
+
+      const { credential } = req.body;
+      if (!credential) {
+        return res.status(400).json({ message: "Google credential is required" });
+      }
+
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: googleClientId,
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email || !payload.sub) {
+        return res.status(400).json({ message: "Invalid Google token" });
+      }
+
+      const googleSub = payload.sub;
+      const email = payload.email;
+      const firstName = payload.given_name || null;
+      const lastName = payload.family_name || null;
+      const picture = payload.picture || null;
+
+      let user = await authStorage.getUserByGoogleSub(googleSub);
+
+      if (!user) {
+        const existingEmailUser = await authStorage.getUserByEmail(email);
+        if (existingEmailUser) {
+          if (existingEmailUser.authProvider === "local" && existingEmailUser.password) {
+            return res.status(400).json({
+              message: "An account with this email already exists. Please sign in with your password.",
+            });
+          }
+          await authStorage.linkGoogleAccount(existingEmailUser.id, googleSub, picture || undefined);
+          user = { ...existingEmailUser, googleSub, authProvider: "google" };
+        } else {
+          let username = email.split("@")[0].replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 25);
+          const existingUsername = await authStorage.getUserByUsername(username);
+          if (existingUsername) {
+            username = `${username}_${Date.now().toString(36).slice(-4)}`;
+          }
+
+          user = await authStorage.createGoogleUser(
+            username,
+            email,
+            googleSub,
+            firstName || undefined,
+            lastName || undefined,
+            picture || undefined
+          );
+        }
+      }
+
+      const accessToken = generateAccessToken({ userId: user.id, email: user.email });
+      const refreshToken = generateRefreshToken();
+      const refreshExpiry = getRefreshTokenExpiry();
+
+      await authStorage.saveRefreshToken(user.id, refreshToken, refreshExpiry);
+
+      res.json({
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        },
+        accessToken,
+        refreshToken,
+        expiresIn: 900,
+      });
+    } catch (error) {
+      console.error("Google auth error:", error);
+      res.status(500).json({ message: "Google authentication failed" });
+    }
+  });
+
+  app.get("/api/auth/google-client-id", (_req, res) => {
+    if (!googleClientId) {
+      return res.status(404).json({ message: "Google login not configured" });
+    }
+    res.json({ clientId: googleClientId });
   });
 }

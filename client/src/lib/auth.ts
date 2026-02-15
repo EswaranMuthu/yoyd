@@ -142,6 +142,23 @@ export async function register(
   return data;
 }
 
+export async function googleLogin(credential: string): Promise<AuthResponse> {
+  const response = await fetch("/api/auth/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || "Google login failed");
+  }
+
+  const data: AuthResponse = await response.json();
+  setTokens(data.accessToken, data.refreshToken, data.expiresIn);
+  return data;
+}
+
 export async function logout(): Promise<void> {
   const token = getAccessToken();
   

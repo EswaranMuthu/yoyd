@@ -2,7 +2,7 @@
 
 ## Overview
 
-yoyd (you own your data) is a multi-tenant web application that provides a beautiful interface for browsing and managing AWS S3 bucket contents. Each user has isolated storage under `users/{username}/` in S3 but sees clean paths without the prefix. Users can browse files, upload content, create folders, and organize cloud storage with JWT-based username/password authentication.
+yoyd (you own your data) is a multi-tenant web application that provides a beautiful interface for browsing and managing AWS S3 bucket contents. Each user has isolated storage under `users/{username}/` in S3 but sees clean paths without the prefix. Users can browse files, upload content, create folders, and organize cloud storage with JWT-based authentication (username/password and Google OAuth).
 
 ## User Preferences
 
@@ -40,14 +40,17 @@ The server handles API requests through Express middleware, with routes register
 The storage layer (`server/storage.ts`) provides database abstraction with CRUD operations for S3 object metadata.
 
 ### Authentication
-- **Method**: JWT (JSON Web Tokens) with username/password
+- **Method**: JWT (JSON Web Tokens) with username/password and Google OAuth
 - **Token Storage**: LocalStorage (client-side)
 - **Access Token Expiry**: 5 minutes (auto-refreshes)
 - **Refresh Token Expiry**: 7 days
 - **Implementation**: Located in `server/auth/`
+- **Google OAuth**: Uses Google Identity Services (GIS) on frontend, google-auth-library on backend for ID token verification
 - **Key Endpoints**:
   - `POST /api/auth/register` - User registration
-  - `POST /api/auth/login` - User login
+  - `POST /api/auth/login` - User login (blocked for Google-only accounts)
+  - `POST /api/auth/google` - Google OAuth login (verifies ID token, creates/links user)
+  - `GET /api/auth/google-client-id` - Returns Google client ID for frontend
   - `POST /api/auth/refresh` - Refresh access token
   - `POST /api/auth/logout` - Ends session
   - `GET /api/auth/user` - Returns current user info (requires Bearer token)
@@ -83,6 +86,8 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 - User folder auto-created in S3 on first sync
 
 ### Authentication
-- **Provider**: JWT (username/password)
+- **Provider**: JWT (username/password + Google OAuth)
 - **Required Environment Variables**:
   - `SESSION_SECRET`
+  - `GOOGLE_CLIENT_ID` (for Google OAuth)
+  - `GOOGLE_CLIENT_SECRET` (for Google OAuth)

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,33 @@ import { Cloud, Shield, FolderOpen, Loader2, ArrowRight, Sparkles, Camera, Image
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential: string }) => void;
+            auto_select?: boolean;
+          }) => void;
+          renderButton: (
+            element: HTMLElement,
+            config: {
+              theme?: string;
+              size?: string;
+              width?: number;
+              text?: string;
+              shape?: string;
+              logo_alignment?: string;
+            }
+          ) => void;
+        };
+      };
+    };
+  }
+}
+
 export default function Landing() {
   const [showAuth, setShowAuth] = useState(false);
   const [mode, setMode] = useState<"login" | "register">("register");
@@ -20,11 +47,72 @@ export default function Landing() {
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const { login, register, isLoggingIn, isRegistering, loginError, registerError } = useAuth();
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [googleScriptLoaded, setGoogleScriptLoaded] = useState(false);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const { login, register, googleLogin, isLoggingIn, isRegistering, isGoogleLoggingIn, loginError, registerError } = useAuth();
   const { toast } = useToast();
 
   const isSubmitting = isLoggingIn || isRegistering;
   const error = mode === "login" ? loginError : registerError;
+
+  const handleGoogleCallback = useCallback(async (response: { credential: string }) => {
+    try {
+      await googleLogin({ credential: response.credential });
+      setShowAuth(false);
+      resetForm();
+    } catch (err) {
+      toast({
+        title: "Google login failed",
+        description: err instanceof Error ? err.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  }, [googleLogin, toast]);
+
+  useEffect(() => {
+    fetch("/api/auth/google-client-id")
+      .then((r) => {
+        if (r.ok) return r.json();
+        return null;
+      })
+      .then((data) => {
+        if (data?.clientId) setGoogleClientId(data.clientId);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!googleClientId || googleScriptLoaded) return;
+    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    if (existing) {
+      setGoogleScriptLoaded(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => setGoogleScriptLoaded(true);
+    document.head.appendChild(script);
+  }, [googleClientId, googleScriptLoaded]);
+
+  useEffect(() => {
+    if (!googleClientId || !googleScriptLoaded || !window.google || !showAuth || !googleBtnRef.current) return;
+    googleBtnRef.current.innerHTML = "";
+    window.google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: handleGoogleCallback,
+    });
+    window.google.accounts.id.renderButton(googleBtnRef.current, {
+      theme: "outline",
+      size: "large",
+      width: 392,
+      text: "continue_with",
+      shape: "rectangular",
+      logo_alignment: "left",
+    });
+  }, [googleClientId, googleScriptLoaded, showAuth, handleGoogleCallback]);
 
   function openRegister() {
     setMode("register");
@@ -292,6 +380,31 @@ export default function Landing() {
                   mode === "login" ? "Sign in" : "Create account"
                 )}
               </Button>
+
+              {googleClientId && (
+                <>
+                  <div className="relative my-2">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-border" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">or</span>
+                    </div>
+                  </div>
+                  <div className="relative">
+                    {isGoogleLoggingIn && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-background/60 z-10 rounded-md">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                    <div
+                      ref={googleBtnRef}
+                      className="flex justify-center"
+                      data-testid="google-signin-button"
+                    />
+                  </div>
+                </>
+              )}
 
               <p className="text-center text-sm text-muted-foreground">
                 {mode === "login" ? (
