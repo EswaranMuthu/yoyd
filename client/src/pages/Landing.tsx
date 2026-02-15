@@ -218,7 +218,7 @@ export default function Landing() {
           </h1>
 
           <p className="text-lg lg:text-xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            Cloud Storage Built for Photographers Everywhere.
+            Where Data Belongs to Its Owner.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
