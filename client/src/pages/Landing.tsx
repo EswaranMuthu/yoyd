@@ -206,7 +206,7 @@ export default function Landing() {
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-violet-500/10 to-fuchsia-500/10 border border-violet-500/20 text-sm font-medium mb-8">
             <Sparkles className="w-4 h-4 text-amber-500" />
             <span className="bg-gradient-to-r from-violet-600 to-fuchsia-500 bg-clip-text text-transparent font-semibold">
-              Secure S3 Storage Browser
+              Your Photos, Your Cloud, Your Way
             </span>
           </div>
 
