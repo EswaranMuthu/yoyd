@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects } from "@/hooks/use-s3";
 import { fetchWithAuth } from "@/lib/auth";
@@ -32,7 +32,8 @@ import {
   Download,
   HardDrive,
   X,
-  Eye
+  Eye,
+  ChevronLeft
 } from "lucide-react";
 import { format } from "date-fns";
 import type { S3Object } from "@shared/schema";
@@ -76,7 +77,7 @@ export default function Dashboard() {
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [previewImage, setPreviewImage] = useState<{ url: string; name: string; size: number | null } | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string; size: number | null; objectId: number } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const { data: objects, isLoading } = useS3Objects(currentPath);
@@ -107,23 +108,36 @@ export default function Dashboard() {
     return mimeType.startsWith("image/");
   }, []);
 
+  const imageObjects = useMemo(() => {
+    return (objects || []).filter((o) => !o.isFolder && isImageFile(o));
+  }, [objects, isImageFile]);
+
+  const currentImageIndex = useMemo(() => {
+    if (!previewImage) return -1;
+    return imageObjects.findIndex((o) => o.id === previewImage.objectId);
+  }, [imageObjects, previewImage]);
+
+  const openPreviewForObject = useCallback(async (object: S3Object) => {
+    setPreviewLoading(true);
+    try {
+      const result = await getDownloadUrlMutation.mutateAsync(object.id);
+      setPreviewImage({ url: result.url, name: object.name, size: object.size, objectId: object.id });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Preview failed",
+        description: "Failed to load image preview",
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [getDownloadUrlMutation, toast]);
+
   const handleFileClick = useCallback(async (object: S3Object) => {
     if (object.isFolder) return;
 
     if (isImageFile(object)) {
-      setPreviewLoading(true);
-      try {
-        const result = await getDownloadUrlMutation.mutateAsync(object.id);
-        setPreviewImage({ url: result.url, name: object.name, size: object.size });
-      } catch {
-        toast({
-          variant: "destructive",
-          title: "Preview failed",
-          description: "Failed to load image preview",
-        });
-      } finally {
-        setPreviewLoading(false);
-      }
+      await openPreviewForObject(object);
     } else {
       try {
         const result = await getDownloadUrlMutation.mutateAsync(object.id);
@@ -136,7 +150,34 @@ export default function Dashboard() {
         });
       }
     }
-  }, [getDownloadUrlMutation, toast, isImageFile]);
+  }, [getDownloadUrlMutation, toast, isImageFile, openPreviewForObject]);
+
+  const handlePrevImage = useCallback(async () => {
+    if (currentImageIndex > 0) {
+      await openPreviewForObject(imageObjects[currentImageIndex - 1]);
+    }
+  }, [currentImageIndex, imageObjects, openPreviewForObject]);
+
+  const handleNextImage = useCallback(async () => {
+    if (currentImageIndex < imageObjects.length - 1) {
+      await openPreviewForObject(imageObjects[currentImageIndex + 1]);
+    }
+  }, [currentImageIndex, imageObjects, openPreviewForObject]);
+
+  useEffect(() => {
+    if (!previewImage) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        handlePrevImage();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        handleNextImage();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewImage, handlePrevImage, handleNextImage]);
 
   const handleDownloadFromPreview = useCallback(() => {
     if (previewImage) {
@@ -597,13 +638,44 @@ export default function Dashboard() {
               </Button>
             </div>
             {previewImage && (
-              <div className="flex items-center justify-center p-4 pt-14 min-h-[50vh]">
+              <div className="flex items-center justify-center p-4 pt-14 min-h-[50vh] relative">
+                {currentImageIndex > 0 && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handlePrevImage}
+                    disabled={previewLoading}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 z-10 bg-background/80 backdrop-blur-sm"
+                    data-testid="button-prev-image"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </Button>
+                )}
                 <img
                   src={previewImage.url}
                   alt={previewImage.name}
                   className="max-w-full max-h-[80vh] object-contain rounded-md"
                   data-testid="image-preview"
                 />
+                {currentImageIndex < imageObjects.length - 1 && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleNextImage}
+                    disabled={previewLoading}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 z-10 bg-background/80 backdrop-blur-sm"
+                    data-testid="button-next-image"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </Button>
+                )}
+              </div>
+            )}
+            {imageObjects.length > 1 && previewImage && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-background/80 backdrop-blur-sm rounded-md px-3 py-1">
+                <p className="text-xs text-muted-foreground" data-testid="text-image-counter">
+                  {currentImageIndex + 1} / {imageObjects.length}
+                </p>
               </div>
             )}
           </DialogContent>
