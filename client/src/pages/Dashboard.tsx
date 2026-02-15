@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects } from "@/hooks/use-s3";
 import { fetchWithAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
+import { formatFileSize, generateBreadcrumbs } from "@/lib/file-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,15 +38,6 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import type { S3Object } from "@shared/schema";
-
-function formatFileSize(bytes: number | null): string {
-  if (bytes === null || bytes === undefined) return "-";
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
 
 function getFileIcon(object: S3Object) {
   if (object.isFolder) {
@@ -86,11 +78,7 @@ export default function Dashboard() {
   const getDownloadUrlMutation = useGetDownloadUrl();
   const deleteMutation = useDeleteObjects();
 
-  const pathParts = currentPath.split("/").filter((p) => p);
-  const breadcrumbs = pathParts.map((part, index) => ({
-    name: part,
-    path: pathParts.slice(0, index + 1).join("/") + "/",
-  }));
+  const breadcrumbs = generateBreadcrumbs(currentPath);
 
   const navigateTo = useCallback((path: string) => {
     setCurrentPath(path);
