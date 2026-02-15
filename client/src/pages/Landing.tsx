@@ -243,10 +243,10 @@ export default function Landing() {
 
           <div className="grid sm:grid-cols-3 gap-5 mt-20 max-w-4xl mx-auto">
             <FeatureCard
-              icon={<Camera className="w-6 h-6" />}
+              icon={<Cloud className="w-6 h-6" />}
               gradient="from-violet-500 to-indigo-600"
-              title="S3 Integration"
-              description="Connect directly to your AWS S3 buckets and browse files with ease."
+              title="Works With Your Cloud"
+              description="Supports Amazon, Google, and Microsoft cloud storage. Your photos stay where you want them."
             />
             <FeatureCard
               icon={<Shield className="w-6 h-6" />}
