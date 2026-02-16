@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
 // User storage table.
 export const users = pgTable("users", {
@@ -25,6 +25,18 @@ export const refreshTokens = pgTable("refresh_tokens", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Secrets vault table for storing service credentials
+export const secretsVault = pgTable("secrets_vault", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key").unique().notNull(),
+  value: text("value").notNull(),
+  category: varchar("category"),
+  description: varchar("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type RefreshToken = typeof refreshTokens.$inferSelect;
+export type SecretVault = typeof secretsVault.$inferSelect;
