@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+*.test.ts
+vitest.config.ts
+drizzle.config.ts
+migrations
+attached_assets
+.replit
+replit.md
+replit_agent
+.local
+Dockerfile
+.dockerignore

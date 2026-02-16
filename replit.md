@@ -115,6 +115,15 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 - **Required Environment Variables**:
   - `SESSION_SECRET`
 
+### Container / ECS Deployment
+- **Dockerfile**: Multi-stage build (deps -> builder -> prod-deps -> runner)
+- **Base Image**: `node:20-slim`
+- **Build**: `npm run build` produces `dist/index.cjs` (server) + `dist/public/` (frontend)
+- **Start**: `node dist/index.cjs` (serves both API and static frontend on port 5000)
+- **Runtime Env Vars**: `DATABASE_URL`, `SESSION_SECRET`, `PORT` (defaults to 5000)
+- **Service Credentials**: Stored in `secrets_vault` database table (not env vars)
+- **DB Migration**: Run `npx drizzle-kit push` against production DB before first deploy
+
 ### Landing Page
 - **Tagline**: "You Own It. We Just Help You See It."
 - **Subtitle**: "Where Data Belongs to Its Owner."
