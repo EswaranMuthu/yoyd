@@ -1,12 +1,16 @@
-# yoyd - S3 Storage Browser
+# yoyd - You Own Your Data
 
 ## Overview
 
-yoyd (you own your data) is a multi-tenant web application that provides a beautiful interface for browsing and managing AWS S3 bucket contents. Each user has isolated storage under `users/{username}/` in S3 but sees clean paths without the prefix. Users can browse files, upload content, create folders, and organize cloud storage with JWT-based authentication (username/password and Google OAuth).
+yoyd (you own your data) is a multi-tenant web application that lets users browse and manage their cloud storage through a clean, simple interface. Each user has isolated storage under `users/{username}/` in S3 but sees clean paths without the prefix. Users can browse files, upload content, create folders, and organize their cloud storage with JWT-based authentication (username/password and Google OAuth).
+
+**Tagline:** "You Own It. We Just Help You See It."
+**Mission:** Where Data Belongs to Its Owner.
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+Non-technical, user-friendly copy preferred for all public-facing text.
 
 ## System Architecture
 
@@ -30,20 +34,20 @@ The server handles API requests through Express middleware, with routes register
 
 ### Data Storage
 - **Database**: PostgreSQL via Drizzle ORM
-- **Schema Location**: `shared/schema.ts`
+- **Schema Location**: `shared/schema.ts`, `shared/models/auth.ts`
 - **Migrations**: Drizzle Kit with `db:push` command
 - **Tables**:
-  - `sessions`: Stores user session data (required for Replit Auth)
-  - `users`: User profile information from Replit Auth
+  - `users`: User accounts (supports password and Google OAuth)
+  - `refresh_tokens`: JWT refresh tokens with expiry and rotation
   - `s3_objects`: Cached metadata about S3 objects for efficient browsing
 
-The storage layer (`server/storage.ts`) provides database abstraction with CRUD operations for S3 object metadata.
+The storage layer (`server/storage.ts`) provides database abstraction with CRUD operations for S3 object metadata. Auth storage (`server/auth/storage.ts`) handles user and token operations.
 
 ### Authentication
 - **Method**: JWT (JSON Web Tokens) with username/password and Google OAuth
 - **Token Storage**: LocalStorage (client-side)
 - **Access Token Expiry**: 5 minutes (auto-refreshes)
-- **Refresh Token Expiry**: 7 days
+- **Refresh Token Expiry**: 7 days (auto-rotates on use)
 - **Implementation**: Located in `server/auth/`
 - **Google OAuth**: Uses Google Identity Services (GIS) on frontend, google-auth-library on backend for ID token verification
 - **Key Endpoints**:
@@ -63,6 +67,21 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 - `POST /api/objects/upload-url` - Get presigned upload URL
 - `POST /api/objects/download-url` - Get presigned download URL
 - `DELETE /api/objects` - Delete objects
+
+### Testing
+- **Framework**: Vitest
+- **Test Files**: 8 test suites, 89 tests
+- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation
+- **Run**: `npx vitest run`
+- **Key Test Files**:
+  - `server/auth/jwt.test.ts` - Token generation, password hashing
+  - `server/auth/middleware.test.ts` - Auth middleware
+  - `server/s3.test.ts` - S3 helper functions
+  - `server/routes.test.ts` - Route validation and user prefix helpers
+  - `client/src/lib/auth.test.ts` - Frontend auth utilities
+  - `client/src/lib/auth-utils.test.ts` - Auth utility functions
+  - `client/src/pages/Dashboard.test.ts` - Dashboard file utilities
+  - `shared/routes.test.ts` - Shared route schema validation
 
 ## External Dependencies
 
@@ -91,3 +110,11 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
   - `SESSION_SECRET`
   - `GOOGLE_CLIENT_ID` (for Google OAuth)
   - `GOOGLE_CLIENT_SECRET` (for Google OAuth)
+
+### Landing Page
+- **Tagline**: "You Own It. We Just Help You See It."
+- **Subtitle**: "Where Data Belongs to Its Owner."
+- **Feature Cards**:
+  - "Works With Your Cloud" - Multi-cloud support (Amazon, Google, Microsoft)
+  - "Your Files, Locked Down" - Bank-level security messaging
+  - "Full Control" - Upload, download, create folders, delete files
