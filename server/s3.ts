@@ -8,16 +8,35 @@ import {
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { getSecrets } from "./vault";
 
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
+let s3Client: S3Client | null = null;
+let bucketName: string = "";
+let initialized = false;
 
-const bucketName = process.env.AWS_S3_BUCKET || "";
+async function ensureInitialized(): Promise<void> {
+  if (initialized) return;
+  const secrets = await getSecrets([
+    "AWS_REGION",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_S3_BUCKET",
+  ]);
+  s3Client = new S3Client({
+    region: secrets.AWS_REGION || "us-east-1",
+    credentials: {
+      accessKeyId: secrets.AWS_ACCESS_KEY_ID || "",
+      secretAccessKey: secrets.AWS_SECRET_ACCESS_KEY || "",
+    },
+  });
+  bucketName = secrets.AWS_S3_BUCKET || "";
+  initialized = true;
+}
+
+function getClient(): S3Client {
+  if (!s3Client) throw new Error("S3 not initialized - call ensureInitialized first");
+  return s3Client;
+}
 
 export interface S3ListResult {
   key: string;
@@ -29,13 +48,14 @@ export interface S3ListResult {
 }
 
 export async function listS3Objects(prefix: string = ""): Promise<S3ListResult[]> {
+  await ensureInitialized();
   const command = new ListObjectsV2Command({
     Bucket: bucketName,
     Prefix: prefix,
     Delimiter: "/",
   });
 
-  const response = await s3Client.send(command);
+  const response = await getClient().send(command);
   const objects: S3ListResult[] = [];
 
   if (response.CommonPrefixes) {
@@ -73,52 +93,58 @@ export async function listS3Objects(prefix: string = ""): Promise<S3ListResult[]
 }
 
 export async function createFolder(folderKey: string): Promise<void> {
+  await ensureInitialized();
   const key = folderKey.endsWith("/") ? folderKey : `${folderKey}/`;
   const command = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
     Body: "",
   });
-  await s3Client.send(command);
+  await getClient().send(command);
 }
 
 export async function getPresignedUploadUrl(key: string, contentType: string): Promise<string> {
+  await ensureInitialized();
   const command = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
     ContentType: contentType,
   });
-  return await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+  return await getSignedUrl(getClient(), command, { expiresIn: 3600 });
 }
 
 export async function uploadToS3(key: string, body: Buffer, contentType: string): Promise<void> {
+  await ensureInitialized();
   const command = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
     Body: body,
     ContentType: contentType,
   });
-  await s3Client.send(command);
+  await getClient().send(command);
 }
 
 export async function getPresignedDownloadUrl(key: string): Promise<string> {
+  await ensureInitialized();
   const command = new GetObjectCommand({
     Bucket: bucketName,
     Key: key,
   });
-  return await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+  return await getSignedUrl(getClient(), command, { expiresIn: 3600 });
 }
 
 export async function deleteS3Object(key: string): Promise<void> {
+  await ensureInitialized();
   const command = new DeleteObjectCommand({
     Bucket: bucketName,
     Key: key,
   });
-  await s3Client.send(command);
+  await getClient().send(command);
 }
 
 export async function deleteS3Objects(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
+  await ensureInitialized();
 
   const command = new DeleteObjectsCommand({
     Bucket: bucketName,
@@ -126,7 +152,7 @@ export async function deleteS3Objects(keys: string[]): Promise<void> {
       Objects: keys.map((key) => ({ Key: key })),
     },
   });
-  await s3Client.send(command);
+  await getClient().send(command);
 }
 
 export async function getObjectMetadata(key: string): Promise<{
@@ -136,11 +162,12 @@ export async function getObjectMetadata(key: string): Promise<{
   etag?: string;
 } | null> {
   try {
+    await ensureInitialized();
     const command = new HeadObjectCommand({
       Bucket: bucketName,
       Key: key,
     });
-    const response = await s3Client.send(command);
+    const response = await getClient().send(command);
     return {
       size: response.ContentLength,
       mimeType: response.ContentType,
@@ -153,6 +180,7 @@ export async function getObjectMetadata(key: string): Promise<{
 }
 
 export async function listAllS3Objects(prefix: string = ""): Promise<S3ListResult[]> {
+  await ensureInitialized();
   const allObjects: S3ListResult[] = [];
   let continuationToken: string | undefined;
 
@@ -163,7 +191,7 @@ export async function listAllS3Objects(prefix: string = ""): Promise<S3ListResul
       ContinuationToken: continuationToken,
     });
 
-    const response = await s3Client.send(command);
+    const response = await getClient().send(command);
 
     if (response.Contents) {
       for (const obj of response.Contents) {
@@ -223,6 +251,12 @@ export function getMimeType(fileName: string): string {
     ts: "application/typescript",
   };
   return mimeTypes[ext] || "application/octet-stream";
+}
+
+export function resetS3Client(): void {
+  s3Client = null;
+  bucketName = "";
+  initialized = false;
 }
 
 export { s3Client, bucketName };

@@ -10,6 +10,7 @@ import {
   comparePassword,
 } from "./jwt";
 import { isAuthenticated } from "./middleware";
+import { getSecret } from "../vault";
 
 const registerSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").max(30, "Username must be at most 30 characters"),
@@ -212,12 +213,10 @@ export function registerAuthRoutes(app: Express) {
     res.json(req.authUser);
   });
 
-  const googleClientId = process.env.GOOGLE_CLIENT_ID;
-  const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
-
   app.post("/api/auth/google", async (req, res) => {
     try {
-      if (!googleClient || !googleClientId) {
+      const googleClientId = await getSecret("GOOGLE_CLIENT_ID");
+      if (!googleClientId) {
         return res.status(500).json({ message: "Google login is not configured" });
       }
 
@@ -226,6 +225,7 @@ export function registerAuthRoutes(app: Express) {
         return res.status(400).json({ message: "Google credential is required" });
       }
 
+      const googleClient = new OAuth2Client(googleClientId);
       const ticket = await googleClient.verifyIdToken({
         idToken: credential,
         audience: googleClientId,
@@ -296,7 +296,8 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.get("/api/auth/google-client-id", (_req, res) => {
+  app.get("/api/auth/google-client-id", async (_req, res) => {
+    const googleClientId = await getSecret("GOOGLE_CLIENT_ID");
     if (!googleClientId) {
       return res.status(404).json({ message: "Google login not configured" });
     }

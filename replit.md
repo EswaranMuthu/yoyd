@@ -70,14 +70,15 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 
 ### Testing
 - **Framework**: Vitest
-- **Test Files**: 8 test suites, 89 tests
-- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation
+- **Test Files**: 9 test suites, 94 tests
+- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation, secrets vault
 - **Run**: `npx vitest run`
 - **Key Test Files**:
   - `server/auth/jwt.test.ts` - Token generation, password hashing
   - `server/auth/middleware.test.ts` - Auth middleware
   - `server/s3.test.ts` - S3 helper functions
   - `server/routes.test.ts` - Route validation and user prefix helpers
+  - `server/vault.test.ts` - Secrets vault loading and caching
   - `client/src/lib/auth.test.ts` - Frontend auth utilities
   - `client/src/lib/auth-utils.test.ts` - Auth utility functions
   - `client/src/pages/Dashboard.test.ts` - Dashboard file utilities
@@ -85,13 +86,17 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 
 ## External Dependencies
 
+### Secrets Vault
+- **Location**: `server/vault.ts`
+- **Storage**: `secrets_vault` database table (defined in `shared/models/auth.ts`)
+- **Caching**: In-memory cache with 5-minute TTL, cleared via `clearVaultCache()`
+- **Usage**: All service credentials (AWS, Google) are loaded from the vault at runtime, not from environment variables
+- **Keys stored**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+
 ### AWS S3
 - **SDK**: @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
-- **Required Environment Variables**:
-  - `AWS_REGION`
-  - `AWS_ACCESS_KEY_ID`
-  - `AWS_SECRET_ACCESS_KEY`
-  - `AWS_S3_BUCKET`
+- **Credentials**: Loaded from secrets_vault database table (not environment variables)
+- **Initialization**: Lazy — S3 client is created on first API call using vault secrets
 
 ### Database
 - **Provider**: PostgreSQL (Neon, Supabase, or similar)
@@ -106,10 +111,9 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 
 ### Authentication
 - **Provider**: JWT (username/password + Google OAuth)
+- **Google Credentials**: Loaded from secrets_vault database table (not environment variables)
 - **Required Environment Variables**:
   - `SESSION_SECRET`
-  - `GOOGLE_CLIENT_ID` (for Google OAuth)
-  - `GOOGLE_CLIENT_SECRET` (for Google OAuth)
 
 ### Landing Page
 - **Tagline**: "You Own It. We Just Help You See It."
