@@ -6,7 +6,7 @@ const { Pool } = pg;
 
 const RDS_DATABASE_URL = "postgresql://postgres:%24italakshmi1@dev1.c3gaww644kmf.us-east-2.rds.amazonaws.com:5432/postgres";
 
-const databaseUrl = process.env.DATABASE_URL || RDS_DATABASE_URL;
+const databaseUrl = RDS_DATABASE_URL;
 
-export const pool = new Pool({ connectionString: databaseUrl });
+export const pool = new Pool({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
 export const db = drizzle(pool, { schema });
