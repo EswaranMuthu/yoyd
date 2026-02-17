@@ -6,7 +6,7 @@ on:
     types: [closed]
 
 env:
-  ECR_REPOSITORY: yoyd
+  ECR_REPOSITORY: pos/yoyd
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:

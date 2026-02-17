@@ -124,6 +124,29 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 - **Service Credentials**: Stored in `secrets_vault` database table (not env vars)
 - **DB Migration**: Run `npx drizzle-kit push` against production DB before first deploy
 
+### CI/CD - GitHub Actions
+- **Workflow**: `.github/workflows/deploy.yml`
+- **Trigger**: PR merged to `main` branch
+- **ECR Repository**: `pos/yoyd`
+- **Pipeline Steps**:
+  1. Checkout code
+  2. Configure AWS credentials
+  3. Log in to Amazon ECR
+  4. Build Docker image (tagged with commit SHA + `latest`)
+  5. Push image to ECR
+  6. Update ECS task definition with new image
+  7. Force new deployment on ECS service
+- **Required GitHub Secrets**:
+  - `AWS_ACCESS_KEY_ID` - IAM credentials with ECR + ECS permissions
+  - `AWS_SECRET_ACCESS_KEY` - IAM secret key
+  - `AWS_REGION` - AWS region (e.g. `us-east-1`)
+  - `ECS_CLUSTER_NAME` - ECS cluster name
+  - `ECS_SERVICE_NAME` - ECS service name
+- **Required IAM Permissions**:
+  - ECR: `GetAuthorizationToken`, `BatchCheckLayerAvailability`, `PutImage`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`
+  - ECS: `DescribeServices`, `DescribeTaskDefinition`, `RegisterTaskDefinition`, `UpdateService`
+  - IAM: `PassRole` (to pass task execution role to ECS)
+
 ### Landing Page
 - **Tagline**: "You Own It. We Just Help You See It."
 - **Subtitle**: "Where Data Belongs to Its Owner."
