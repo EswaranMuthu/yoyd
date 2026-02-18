@@ -17,6 +17,10 @@ import {
   getObjectMetadata,
   getMimeType,
   uploadToS3,
+  initiateMultipartUpload,
+  getPresignedPartUrl,
+  completeMultipartUpload as completeS3Multipart,
+  abortMultipartUpload as abortS3Multipart,
 } from "./s3";
 import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
@@ -346,6 +350,136 @@ export async function registerRoutes(
       }
       console.error("Error deleting objects:", error);
       res.status(500).json({ message: "Failed to delete objects" });
+    }
+  });
+
+  app.post(api.objects.initiateMultipart.path, isAuthenticated, async (req, res) => {
+    try {
+      const username = req.authUser!.username;
+      const input = api.objects.initiateMultipart.input.parse(req.body);
+
+      const sanitizedName = input.fileName.replace(/[\\]/g, "/").split("/").pop()?.replace(/\.\./g, "_") || "";
+      if (!sanitizedName || sanitizedName.startsWith(".")) {
+        return res.status(400).json({ message: "Invalid file name" });
+      }
+
+      if (input.parentKey && /\.\./.test(input.parentKey)) {
+        return res.status(400).json({ message: "Invalid parent path" });
+      }
+
+      const parentKey = input.parentKey
+        ? addUserPrefix(input.parentKey, username)
+        : getUserPrefix(username);
+
+      const key = `${parentKey}${sanitizedName}`;
+      const uploadId = await initiateMultipartUpload(key, input.mimeType);
+
+      res.json({ uploadId, key: stripUserPrefix(key, username) });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.errors[0].message,
+          field: error.errors[0].path.join("."),
+        });
+      }
+      console.error("Error initiating multipart upload:", error);
+      res.status(500).json({ message: "Failed to initiate multipart upload" });
+    }
+  });
+
+  app.post(api.objects.presignPart.path, isAuthenticated, async (req, res) => {
+    try {
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
+      const input = api.objects.presignPart.input.parse(req.body);
+
+      const fullKey = addUserPrefix(input.key, username);
+      if (!fullKey.startsWith(userPrefix)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const url = await getPresignedPartUrl(fullKey, input.uploadId, input.partNumber);
+      res.json({ url });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.errors[0].message,
+          field: error.errors[0].path.join("."),
+        });
+      }
+      console.error("Error presigning part:", error);
+      res.status(500).json({ message: "Failed to presign part" });
+    }
+  });
+
+  app.post(api.objects.completeMultipart.path, isAuthenticated, async (req, res) => {
+    try {
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
+      const input = api.objects.completeMultipart.input.parse(req.body);
+
+      const fullKey = addUserPrefix(input.key, username);
+      if (!fullKey.startsWith(userPrefix)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await completeS3Multipart(fullKey, input.uploadId, input.parts);
+
+      const metadata = await getObjectMetadata(fullKey);
+      const parts = fullKey.split("/").filter((p) => p);
+      const name = parts[parts.length - 1] || fullKey;
+      let parentKey: string | null = null;
+      if (parts.length > 1) {
+        parentKey = parts.slice(0, -1).join("/") + "/";
+      }
+
+      const insertObj: InsertS3Object = {
+        key: fullKey,
+        name,
+        parentKey,
+        isFolder: false,
+        size: metadata?.size ?? null,
+        mimeType: metadata?.mimeType ?? getMimeType(name),
+        etag: metadata?.etag ?? null,
+        lastModified: metadata?.lastModified ?? new Date(),
+      };
+
+      const object = await storage.upsertObject(insertObj);
+      res.json(stripPrefixFromObject(object, username));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.errors[0].message,
+          field: error.errors[0].path.join("."),
+        });
+      }
+      console.error("Error completing multipart upload:", error);
+      res.status(500).json({ message: "Failed to complete multipart upload" });
+    }
+  });
+
+  app.post(api.objects.abortMultipart.path, isAuthenticated, async (req, res) => {
+    try {
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
+      const input = api.objects.abortMultipart.input.parse(req.body);
+
+      const fullKey = addUserPrefix(input.key, username);
+      if (!fullKey.startsWith(userPrefix)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await abortS3Multipart(fullKey, input.uploadId);
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.errors[0].message,
+          field: error.errors[0].path.join("."),
+        });
+      }
+      console.error("Error aborting multipart upload:", error);
+      res.status(500).json({ message: "Failed to abort multipart upload" });
     }
   });
 

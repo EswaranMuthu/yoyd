@@ -1,9 +1,10 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects } from "@/hooks/use-s3";
 import { fetchWithAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
 import { formatFileSize, generateBreadcrumbs } from "@/lib/file-utils";
+import { useUploadManager, type UploadItem } from "@/hooks/use-upload-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Loader2, 
@@ -34,7 +36,14 @@ import {
   HardDrive,
   X,
   Eye,
-  ChevronLeft
+  ChevronLeft,
+  FolderUp,
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  Ban
 } from "lucide-react";
 import { format } from "date-fns";
 import type { S3Object } from "@shared/schema";
@@ -68,15 +77,20 @@ export default function Dashboard() {
   const [newFolderName, setNewFolderName] = useState("");
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string; size: number | null; objectId: number } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(false);
+  const dragCounterRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const { data: objects, isLoading } = useS3Objects(currentPath);
   const syncMutation = useSyncObjects();
   const createFolderMutation = useCreateFolder();
   const getDownloadUrlMutation = useGetDownloadUrl();
   const deleteMutation = useDeleteObjects();
+  const uploadManager = useUploadManager();
 
   const breadcrumbs = generateBreadcrumbs(currentPath);
 
@@ -214,49 +228,118 @@ export default function Dashboard() {
     }
   }, [newFolderName, currentPath, createFolderMutation, toast]);
 
-  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    uploadManager.addFiles(Array.from(files), currentPath);
+    setIsUploadPanelOpen(true);
+    e.target.value = "";
+  }, [currentPath, uploadManager]);
+
+  const handleFolderUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    setIsUploading(true);
-    try {
-      for (const file of Array.from(files)) {
-        const formData = new FormData();
-        formData.append("file", file);
-        if (currentPath) {
-          formData.append("parentKey", currentPath);
-        }
+    const fileArray = Array.from(files);
+    const relativePaths = new Map<File, string>();
+    for (const file of fileArray) {
+      const relPath = (file as any).webkitRelativePath as string;
+      if (relPath) {
+        relativePaths.set(file, relPath);
+      }
+    }
+    uploadManager.addFiles(fileArray, currentPath, relativePaths);
+    setIsUploadPanelOpen(true);
+    e.target.value = "";
+  }, [currentPath, uploadManager]);
 
-        const res = await fetchWithAuth("/api/objects/upload", {
-          method: "POST",
-          body: formData,
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const traverseFileTree = useCallback((entry: any, path: string = ""): Promise<{ file: File; relativePath: string }[]> => {
+    return new Promise((resolve) => {
+      if (entry.isFile) {
+        entry.file((file: File) => {
+          resolve([{ file, relativePath: path + file.name }]);
         });
+      } else if (entry.isDirectory) {
+        const dirReader = entry.createReader();
+        dirReader.readEntries(async (entries: any[]) => {
+          const results: { file: File; relativePath: string }[] = [];
+          for (const childEntry of entries) {
+            const childResults = await traverseFileTree(childEntry, path + entry.name + "/");
+            results.push(...childResults);
+          }
+          resolve(results);
+        });
+      } else {
+        resolve([]);
+      }
+    });
+  }, []);
 
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ message: "Upload failed" }));
-          throw new Error(err.message || `Failed to upload ${file.name}`);
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+
+    const items = e.dataTransfer.items;
+    if (!items || items.length === 0) return;
+
+    const allFiles: File[] = [];
+    const relativePaths = new Map<File, string>();
+
+    const entries: any[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry?.();
+      if (entry) {
+        entries.push(entry);
+      }
+    }
+
+    if (entries.length > 0) {
+      for (const entry of entries) {
+        const results = await traverseFileTree(entry);
+        for (const { file, relativePath } of results) {
+          allFiles.push(file);
+          if (relativePath.includes("/")) {
+            relativePaths.set(file, relativePath);
+          }
         }
       }
-
-      queryClient.invalidateQueries({ predicate: (query) =>
-        typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects")
-      });
-
-      toast({
-        title: "Upload complete",
-        description: `Uploaded ${files.length} file(s)`,
-      });
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "Failed to upload file(s)",
-      });
-    } finally {
-      setIsUploading(false);
-      e.target.value = "";
+    } else {
+      const files = e.dataTransfer.files;
+      for (let i = 0; i < files.length; i++) {
+        allFiles.push(files[i]);
+      }
     }
-  }, [currentPath, toast]);
+
+    if (allFiles.length > 0) {
+      uploadManager.addFiles(allFiles, currentPath, relativePaths.size > 0 ? relativePaths : undefined);
+      setIsUploadPanelOpen(true);
+    }
+  }, [currentPath, uploadManager, traverseFileTree]);
 
   const handleDelete = useCallback(async () => {
     if (selectedKeys.size === 0) return;
@@ -334,7 +417,13 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      <main className="flex-1 md:ml-64 p-4 lg:p-8">
+      <main
+        className="flex-1 md:ml-64 p-4 lg:p-8 relative"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         <header className="flex flex-col gap-4 mb-6">
           <div className="flex justify-between items-center">
             <div>
@@ -423,20 +512,30 @@ export default function Dashboard() {
                   </DialogContent>
                 </Dialog>
 
-                <Button variant="outline" size="sm" disabled={isUploading} asChild data-testid="button-upload">
+                <Button variant="outline" size="sm" disabled={uploadManager.isProcessing} asChild data-testid="button-upload">
                   <label className="cursor-pointer">
-                    {isUploading ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Upload className="w-4 h-4 mr-2" />
-                    )}
-                    Upload
+                    <Upload className="w-4 h-4 mr-2" />
+                    Files
                     <input
+                      ref={fileInputRef}
                       type="file"
                       multiple
                       className="hidden"
                       onChange={handleFileUpload}
-                      disabled={isUploading}
+                    />
+                  </label>
+                </Button>
+
+                <Button variant="outline" size="sm" disabled={uploadManager.isProcessing} asChild data-testid="button-upload-folder">
+                  <label className="cursor-pointer">
+                    <FolderUp className="w-4 h-4 mr-2" />
+                    Folder
+                    <input
+                      ref={folderInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={handleFolderUpload}
+                      {...{ webkitdirectory: "", directory: "", multiple: true } as any}
                     />
                   </label>
                 </Button>
@@ -467,7 +566,7 @@ export default function Dashboard() {
                 <p className="text-muted-foreground mb-4">
                   This location is empty. Upload files or create a folder to get started.
                 </p>
-                <div className="flex justify-center gap-2">
+                <div className="flex justify-center gap-2 flex-wrap">
                   <Button variant="outline" onClick={() => setIsNewFolderOpen(true)}>
                     <FolderPlus className="w-4 h-4 mr-2" />
                     New Folder
@@ -476,15 +575,25 @@ export default function Dashboard() {
                     <label className="cursor-pointer">
                       <Upload className="w-4 h-4 mr-2" />
                       Upload Files
+                      <input type="file" multiple className="hidden" onChange={handleFileUpload} />
+                    </label>
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <label className="cursor-pointer">
+                      <FolderUp className="w-4 h-4 mr-2" />
+                      Upload Folder
                       <input
                         type="file"
-                        multiple
                         className="hidden"
-                        onChange={handleFileUpload}
+                        onChange={handleFolderUpload}
+                        {...{ webkitdirectory: "", directory: "", multiple: true } as any}
                       />
                     </label>
                   </Button>
                 </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Or drag and drop files here
+                </p>
               </div>
             ) : (
               <Table>
@@ -672,6 +781,129 @@ export default function Dashboard() {
         {previewLoading && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="status" aria-label="Loading preview">
             <Loader2 className="w-10 h-10 animate-spin text-white" />
+          </div>
+        )}
+
+        {isDragging && (
+          <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-primary/10 border-2 border-dashed border-primary pointer-events-none"
+            data-testid="drag-overlay"
+          >
+            <div className="bg-background rounded-md p-8 text-center shadow-lg">
+              <Upload className="w-12 h-12 mx-auto text-primary mb-4" />
+              <p className="text-lg font-medium">Drop files or folders here</p>
+              <p className="text-sm text-muted-foreground">Files will be uploaded to the current folder</p>
+            </div>
+          </div>
+        )}
+
+        {uploadManager.uploads.length > 0 && (
+          <div
+            className="fixed bottom-4 right-4 z-30 w-96 max-w-[calc(100vw-2rem)] bg-card border border-border rounded-md shadow-lg"
+            data-testid="upload-panel"
+          >
+            <div
+              className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border cursor-pointer"
+              onClick={() => setIsUploadPanelOpen(!isUploadPanelOpen)}
+              data-testid="button-toggle-upload-panel"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Upload className="w-4 h-4 shrink-0" />
+                <span className="text-sm font-medium truncate">
+                  {uploadManager.isProcessing
+                    ? `Uploading ${uploadManager.activeCount} file(s)...`
+                    : `${uploadManager.completedCount} completed, ${uploadManager.failedCount} failed`}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                {uploadManager.completedCount > 0 && !uploadManager.isProcessing && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => { e.stopPropagation(); uploadManager.clearCompleted(); }}
+                    data-testid="button-clear-uploads"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+                {isUploadPanelOpen ? (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
+            </div>
+
+            {uploadManager.isProcessing && (
+              <div className="px-4 py-2 border-b border-border">
+                <Progress value={uploadManager.overallProgress} className="h-2" data-testid="progress-overall" />
+                <p className="text-xs text-muted-foreground mt-1">{uploadManager.overallProgress}% overall</p>
+              </div>
+            )}
+
+            {isUploadPanelOpen && (
+              <div className="max-h-64 overflow-y-auto">
+                {uploadManager.uploads.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 px-4 py-2 border-b border-border/50 last:border-b-0"
+                    data-testid={`upload-item-${item.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm truncate" data-testid={`upload-name-${item.id}`}>
+                        {item.relativePath || item.file.name}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-muted-foreground">{formatFileSize(item.file.size)}</span>
+                        {item.status === "uploading" && (
+                          <Progress value={item.progress} className="h-1.5 flex-1" data-testid={`progress-${item.id}`} />
+                        )}
+                        {item.status === "uploading" && (
+                          <span className="text-xs text-muted-foreground">{item.progress}%</span>
+                        )}
+                      </div>
+                      {item.error && (
+                        <p className="text-xs text-destructive mt-0.5">{item.error}</p>
+                      )}
+                    </div>
+                    <div className="shrink-0">
+                      {item.status === "completed" && (
+                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                      )}
+                      {item.status === "failed" && (
+                        <div className="flex items-center gap-1">
+                          <XCircle className="w-4 h-4 text-destructive" />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => uploadManager.retryUpload(item.id, currentPath)}
+                            data-testid={`button-retry-${item.id}`}
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      )}
+                      {item.status === "cancelled" && (
+                        <Ban className="w-4 h-4 text-muted-foreground" />
+                      )}
+                      {(item.status === "uploading" || item.status === "queued") && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => uploadManager.cancelUpload(item.id)}
+                          data-testid={`button-cancel-${item.id}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      )}
+                      {item.status === "queued" && (
+                        <span className="text-xs text-muted-foreground">Queued</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>

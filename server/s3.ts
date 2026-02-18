@@ -6,6 +6,10 @@ import {
   DeleteObjectsCommand,
   HeadObjectCommand,
   GetObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getSecrets } from "./vault";
@@ -251,6 +255,56 @@ export function getMimeType(fileName: string): string {
     ts: "application/typescript",
   };
   return mimeTypes[ext] || "application/octet-stream";
+}
+
+export async function initiateMultipartUpload(key: string, contentType: string): Promise<string> {
+  await ensureInitialized();
+  const command = new CreateMultipartUploadCommand({
+    Bucket: bucketName,
+    Key: key,
+    ContentType: contentType,
+  });
+  const response = await getClient().send(command);
+  if (!response.UploadId) throw new Error("Failed to initiate multipart upload");
+  return response.UploadId;
+}
+
+export async function getPresignedPartUrl(key: string, uploadId: string, partNumber: number): Promise<string> {
+  await ensureInitialized();
+  const command = new UploadPartCommand({
+    Bucket: bucketName,
+    Key: key,
+    UploadId: uploadId,
+    PartNumber: partNumber,
+  });
+  return await getSignedUrl(getClient(), command, { expiresIn: 3600 });
+}
+
+export async function completeMultipartUpload(
+  key: string,
+  uploadId: string,
+  parts: { PartNumber: number; ETag: string }[]
+): Promise<void> {
+  await ensureInitialized();
+  const command = new CompleteMultipartUploadCommand({
+    Bucket: bucketName,
+    Key: key,
+    UploadId: uploadId,
+    MultipartUpload: {
+      Parts: parts.sort((a, b) => a.PartNumber - b.PartNumber),
+    },
+  });
+  await getClient().send(command);
+}
+
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+  await ensureInitialized();
+  const command = new AbortMultipartUploadCommand({
+    Bucket: bucketName,
+    Key: key,
+    UploadId: uploadId,
+  });
+  await getClient().send(command);
 }
 
 export function resetS3Client(): void {
