@@ -159,6 +159,9 @@ export function useUploadManager() {
     [updateUpload]
   );
 
+  const queueRef = useRef<UploadItem[]>([]);
+  const activeWorkersRef = useRef(0);
+
   const processOneItem = useCallback(async (itemToProcess: UploadItem, currentPath: string) => {
     const parentKey = itemToProcess.relativePath
       ? (() => {
@@ -207,35 +210,17 @@ export function useUploadManager() {
     }
   }, [uploadSmallFile, uploadLargeFile, updateUpload]);
 
-  const processQueue = useCallback(async (currentPath: string) => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-    setIsProcessing(true);
+  const runWorker = useCallback(async (currentPath: string) => {
+    while (true) {
+      const nextItem = queueRef.current.shift();
+      if (!nextItem) break;
 
-    try {
-      const runWorker = async () => {
-        while (true) {
-          let nextItem: UploadItem | undefined;
-          setUploads((prev) => {
-            nextItem = prev.find((u) => u.status === "queued");
-            if (nextItem) {
-              return prev.map((u) =>
-                u.id === nextItem!.id ? { ...u, status: "uploading" as UploadStatus } : u
-              );
-            }
-            return prev;
-          });
+      updateUpload(nextItem.id, { status: "uploading" });
+      await processOneItem(nextItem, currentPath);
+    }
 
-          await new Promise((r) => setTimeout(r, 0));
-
-          if (!nextItem) break;
-          await processOneItem(nextItem, currentPath);
-        }
-      };
-
-      const workers = Array.from({ length: MAX_CONCURRENT_UPLOADS }, () => runWorker());
-      await Promise.all(workers);
-    } finally {
+    activeWorkersRef.current--;
+    if (activeWorkersRef.current === 0) {
       processingRef.current = false;
       setIsProcessing(false);
       queryClient.invalidateQueries({
@@ -243,7 +228,19 @@ export function useUploadManager() {
           typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects"),
       });
     }
-  }, [processOneItem]);
+  }, [processOneItem, updateUpload]);
+
+  const processQueue = useCallback(async (currentPath: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
+
+    const workersToStart = Math.min(MAX_CONCURRENT_UPLOADS, queueRef.current.length);
+    activeWorkersRef.current = workersToStart;
+    for (let i = 0; i < workersToStart; i++) {
+      runWorker(currentPath);
+    }
+  }, [runWorker]);
 
   const addFiles = useCallback(
     (files: File[], currentPath: string, relativePaths?: Map<File, string>) => {
@@ -260,6 +257,7 @@ export function useUploadManager() {
         progress: 0,
       }));
 
+      queueRef.current.push(...newItems);
       setUploads((prev) => [...prev, ...newItems]);
 
       setTimeout(() => processQueue(currentPath), 0);
@@ -287,13 +285,17 @@ export function useUploadManager() {
 
   const retryUpload = useCallback(
     (id: string, currentPath: string) => {
-      setUploads((prev) =>
-        prev.map((u) =>
+      setUploads((prev) => {
+        const item = prev.find((u) => u.id === id && (u.status === "failed" || u.status === "cancelled"));
+        if (item) {
+          queueRef.current.push({ ...item, status: "queued", progress: 0, error: undefined });
+        }
+        return prev.map((u) =>
           u.id === id && (u.status === "failed" || u.status === "cancelled")
             ? { ...u, status: "queued" as UploadStatus, progress: 0, error: undefined }
             : u
-        )
-      );
+        );
+      });
       setTimeout(() => processQueue(currentPath), 0);
     },
     [processQueue]
