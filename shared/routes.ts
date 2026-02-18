@@ -85,6 +85,64 @@ export const api = {
         401: errorSchemas.unauthorized,
       },
     },
+    initiateMultipart: {
+      method: 'POST' as const,
+      path: '/api/objects/multipart/initiate',
+      input: z.object({
+        fileName: z.string().min(1),
+        mimeType: z.string(),
+        parentKey: z.string().optional(),
+      }),
+      responses: {
+        200: z.object({ uploadId: z.string(), key: z.string() }),
+        400: errorSchemas.validation,
+        401: errorSchemas.unauthorized,
+      },
+    },
+    presignPart: {
+      method: 'POST' as const,
+      path: '/api/objects/multipart/presign-part',
+      input: z.object({
+        key: z.string().min(1),
+        uploadId: z.string().min(1),
+        partNumber: z.number().int().min(1).max(10000),
+      }),
+      responses: {
+        200: z.object({ url: z.string() }),
+        400: errorSchemas.validation,
+        401: errorSchemas.unauthorized,
+      },
+    },
+    completeMultipart: {
+      method: 'POST' as const,
+      path: '/api/objects/multipart/complete',
+      input: z.object({
+        key: z.string().min(1),
+        uploadId: z.string().min(1),
+        parts: z.array(z.object({
+          PartNumber: z.number().int().min(1),
+          ETag: z.string(),
+        })),
+      }),
+      responses: {
+        200: z.custom<typeof s3Objects.$inferSelect>(),
+        400: errorSchemas.validation,
+        401: errorSchemas.unauthorized,
+      },
+    },
+    abortMultipart: {
+      method: 'POST' as const,
+      path: '/api/objects/multipart/abort',
+      input: z.object({
+        key: z.string().min(1),
+        uploadId: z.string().min(1),
+      }),
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        400: errorSchemas.validation,
+        401: errorSchemas.unauthorized,
+      },
+    },
   },
 };
 

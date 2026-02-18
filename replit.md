@@ -64,14 +64,29 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 - `GET /api/objects` - List S3 objects
 - `POST /api/objects/sync` - Sync S3 bucket with database
 - `POST /api/objects/folder` - Create folder
+- `POST /api/objects/upload` - Upload file (server-side, up to 100MB via multer)
 - `POST /api/objects/upload-url` - Get presigned upload URL
-- `POST /api/objects/download-url` - Get presigned download URL
+- `POST /api/objects/confirm-upload` - Confirm upload and upsert DB metadata
+- `GET /api/objects/:id/download` - Get presigned download URL
 - `DELETE /api/objects` - Delete objects
+- `POST /api/objects/multipart/initiate` - Initiate S3 multipart upload (for files >100MB)
+- `POST /api/objects/multipart/presign-part` - Get presigned URL for a multipart part
+- `POST /api/objects/multipart/complete` - Complete multipart upload
+- `POST /api/objects/multipart/abort` - Abort multipart upload
+
+### Upload System
+- **Small files (<=100MB)**: Uploaded through server via multer with XHR progress tracking
+- **Large files (>100MB)**: S3 multipart upload with 10MB parts, presigned URLs, up to 3 concurrent parts
+- **Folder uploads**: Uses webkitdirectory API and drag-and-drop with FileSystemEntry traversal
+- **Bulk uploads**: Queue-based upload manager with per-file progress bars, cancel/retry support
+- **Drag & drop**: Supports both files and folders via DataTransfer API
+- **Upload panel**: Fixed bottom-right panel showing per-file status, progress, and overall progress
+- **Key files**: `client/src/hooks/use-upload-manager.ts` (queue + multipart logic), `server/s3.ts` (S3 multipart helpers)
 
 ### Testing
 - **Framework**: Vitest
-- **Test Files**: 9 test suites, 94 tests
-- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation, secrets vault
+- **Test Files**: 10 test suites, 173 tests
+- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation, secrets vault, multipart upload schemas, upload manager utilities
 - **Run**: `npx vitest run`
 - **Key Test Files**:
   - `server/auth/jwt.test.ts` - Token generation, password hashing
@@ -83,6 +98,7 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
   - `client/src/lib/auth-utils.test.ts` - Auth utility functions
   - `client/src/pages/Dashboard.test.ts` - Dashboard file utilities
   - `shared/routes.test.ts` - Shared route schema validation
+  - `client/src/hooks/use-upload-manager.test.ts` - Upload manager utilities, multipart logic, progress tracking
 
 ## External Dependencies
 

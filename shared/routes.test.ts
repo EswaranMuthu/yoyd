@@ -106,4 +106,138 @@ describe("API route definitions", () => {
     const missingKey = schema.safeParse({});
     expect(missingKey.success).toBe(false);
   });
+
+  it("should have correct paths for multipart operations", () => {
+    expect(api.objects.initiateMultipart.path).toBe("/api/objects/multipart/initiate");
+    expect(api.objects.presignPart.path).toBe("/api/objects/multipart/presign-part");
+    expect(api.objects.completeMultipart.path).toBe("/api/objects/multipart/complete");
+    expect(api.objects.abortMultipart.path).toBe("/api/objects/multipart/abort");
+  });
+
+  it("should have POST method for all multipart operations", () => {
+    expect(api.objects.initiateMultipart.method).toBe("POST");
+    expect(api.objects.presignPart.method).toBe("POST");
+    expect(api.objects.completeMultipart.method).toBe("POST");
+    expect(api.objects.abortMultipart.method).toBe("POST");
+  });
+
+  it("should validate initiateMultipart input correctly", () => {
+    const schema = api.objects.initiateMultipart.input;
+
+    const valid = schema.safeParse({ fileName: "bigfile.zip", mimeType: "application/zip" });
+    expect(valid.success).toBe(true);
+
+    const withParent = schema.safeParse({ fileName: "bigfile.zip", mimeType: "application/zip", parentKey: "docs/" });
+    expect(withParent.success).toBe(true);
+
+    const emptyFileName = schema.safeParse({ fileName: "", mimeType: "application/zip" });
+    expect(emptyFileName.success).toBe(false);
+
+    const missingMimeType = schema.safeParse({ fileName: "file.bin" });
+    expect(missingMimeType.success).toBe(false);
+
+    const missingFileName = schema.safeParse({ mimeType: "application/zip" });
+    expect(missingFileName.success).toBe(false);
+
+    const emptyObject = schema.safeParse({});
+    expect(emptyObject.success).toBe(false);
+  });
+
+  it("should validate presignPart input correctly", () => {
+    const schema = api.objects.presignPart.input;
+
+    const valid = schema.safeParse({ key: "photos/big.zip", uploadId: "abc123", partNumber: 1 });
+    expect(valid.success).toBe(true);
+
+    const maxPart = schema.safeParse({ key: "file.bin", uploadId: "xyz", partNumber: 10000 });
+    expect(maxPart.success).toBe(true);
+
+    const partZero = schema.safeParse({ key: "file.bin", uploadId: "xyz", partNumber: 0 });
+    expect(partZero.success).toBe(false);
+
+    const partTooHigh = schema.safeParse({ key: "file.bin", uploadId: "xyz", partNumber: 10001 });
+    expect(partTooHigh.success).toBe(false);
+
+    const negativePart = schema.safeParse({ key: "file.bin", uploadId: "xyz", partNumber: -1 });
+    expect(negativePart.success).toBe(false);
+
+    const floatPart = schema.safeParse({ key: "file.bin", uploadId: "xyz", partNumber: 1.5 });
+    expect(floatPart.success).toBe(false);
+
+    const emptyKey = schema.safeParse({ key: "", uploadId: "abc", partNumber: 1 });
+    expect(emptyKey.success).toBe(false);
+
+    const emptyUploadId = schema.safeParse({ key: "file.bin", uploadId: "", partNumber: 1 });
+    expect(emptyUploadId.success).toBe(false);
+
+    const missingAll = schema.safeParse({});
+    expect(missingAll.success).toBe(false);
+  });
+
+  it("should validate completeMultipart input correctly", () => {
+    const schema = api.objects.completeMultipart.input;
+
+    const valid = schema.safeParse({
+      key: "photos/big.zip",
+      uploadId: "abc123",
+      parts: [{ PartNumber: 1, ETag: "etag1" }, { PartNumber: 2, ETag: "etag2" }],
+    });
+    expect(valid.success).toBe(true);
+
+    const singlePart = schema.safeParse({
+      key: "file.bin",
+      uploadId: "xyz",
+      parts: [{ PartNumber: 1, ETag: "abc" }],
+    });
+    expect(singlePart.success).toBe(true);
+
+    const emptyParts = schema.safeParse({
+      key: "file.bin",
+      uploadId: "xyz",
+      parts: [],
+    });
+    expect(emptyParts.success).toBe(true);
+
+    const missingETag = schema.safeParse({
+      key: "file.bin",
+      uploadId: "xyz",
+      parts: [{ PartNumber: 1 }],
+    });
+    expect(missingETag.success).toBe(false);
+
+    const missingPartNumber = schema.safeParse({
+      key: "file.bin",
+      uploadId: "xyz",
+      parts: [{ ETag: "abc" }],
+    });
+    expect(missingPartNumber.success).toBe(false);
+
+    const emptyKey = schema.safeParse({ key: "", uploadId: "abc", parts: [] });
+    expect(emptyKey.success).toBe(false);
+
+    const missingUploadId = schema.safeParse({ key: "file.bin", parts: [] });
+    expect(missingUploadId.success).toBe(false);
+  });
+
+  it("should validate abortMultipart input correctly", () => {
+    const schema = api.objects.abortMultipart.input;
+
+    const valid = schema.safeParse({ key: "photos/big.zip", uploadId: "abc123" });
+    expect(valid.success).toBe(true);
+
+    const emptyKey = schema.safeParse({ key: "", uploadId: "abc" });
+    expect(emptyKey.success).toBe(false);
+
+    const emptyUploadId = schema.safeParse({ key: "file.bin", uploadId: "" });
+    expect(emptyUploadId.success).toBe(false);
+
+    const missingKey = schema.safeParse({ uploadId: "abc" });
+    expect(missingKey.success).toBe(false);
+
+    const missingUploadId = schema.safeParse({ key: "file.bin" });
+    expect(missingUploadId.success).toBe(false);
+
+    const emptyObject = schema.safeParse({});
+    expect(emptyObject.success).toBe(false);
+  });
 });
