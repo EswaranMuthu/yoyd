@@ -193,12 +193,14 @@ export default function Dashboard() {
       clearTimeout(autoDismissTimerRef.current);
       autoDismissTimerRef.current = null;
     }
+    const hasAnyFailure = uploadManager.uploads.some(
+      (u) => u.status === "failed" || u.status === "cancelled"
+    );
     const allSucceeded =
       uploadManager.uploads.length > 0 &&
       !uploadManager.isProcessing &&
-      uploadManager.failedCount === 0 &&
-      cancelledCount === 0 &&
-      uploadManager.completedCount === uploadManager.uploads.length;
+      !hasAnyFailure &&
+      uploadManager.uploads.every((u) => u.status === "completed");
     if (allSucceeded) {
       autoDismissTimerRef.current = setTimeout(() => {
         uploadManager.clearCompleted();
