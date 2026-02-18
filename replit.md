@@ -38,6 +38,7 @@ The server handles API requests through Express middleware, with routes register
 - **Migrations**: Drizzle Kit with `db:push` command
 - **Tables**:
   - `users`: User accounts (supports password and Google OAuth), includes `total_storage_bytes` (bigint) for current storage and `monthly_consumed_bytes` (bigint) for cumulative upload tracking per billing cycle
+  - `billing_records`: Monthly billing history per user (year, month, consumed_bytes, free_bytes, billable_bytes, cost_cents); unique constraint on (user_id, year, month)
   - `refresh_tokens`: JWT refresh tokens with expiry and rotation
   - `s3_objects`: Cached metadata about S3 objects for efficient browsing
 

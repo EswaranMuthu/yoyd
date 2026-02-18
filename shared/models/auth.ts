@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, varchar, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, varchar, bigint, integer, unique } from "drizzle-orm/pg-core";
 
 // User storage table.
 export const users = pgTable("users", {
@@ -38,7 +38,22 @@ export const secretsVault = pgTable("secrets_vault", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const billingRecords = pgTable("billing_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+  consumedBytes: bigint("consumed_bytes", { mode: "number" }).notNull().default(0),
+  freeBytes: bigint("free_bytes", { mode: "number" }).notNull().default(0),
+  billableBytes: bigint("billable_bytes", { mode: "number" }).notNull().default(0),
+  costCents: integer("cost_cents").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("billing_records_user_month_unique").on(table.userId, table.year, table.month),
+]);
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type RefreshToken = typeof refreshTokens.$inferSelect;
 export type SecretVault = typeof secretsVault.$inferSelect;
+export type BillingRecord = typeof billingRecords.$inferSelect;
