@@ -68,7 +68,6 @@ export async function runMonthlyBilling(year: number, month: number): Promise<{
         userId: user.id,
         year,
         month,
-        consumedBytes: consumed,
         freeBytes: Math.min(consumed, FREE_TIER_BYTES),
         billableBytes: Math.max(0, consumed - FREE_TIER_BYTES),
         costCents: billing.costCents,

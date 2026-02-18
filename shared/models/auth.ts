@@ -43,7 +43,6 @@ export const billingRecords = pgTable("billing_records", {
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   year: integer("year").notNull(),
   month: integer("month").notNull(),
-  consumedBytes: bigint("consumed_bytes", { mode: "number" }).notNull().default(0),
   freeBytes: bigint("free_bytes", { mode: "number" }).notNull().default(0),
   billableBytes: bigint("billable_bytes", { mode: "number" }).notNull().default(0),
   costCents: integer("cost_cents").notNull().default(0),
