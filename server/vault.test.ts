@@ -70,4 +70,52 @@ describe("vault", () => {
     const result = await getSecret("KEY1");
     expect(result).toBe("val2");
   });
+
+  it("getSecret returns Stripe keys from vault", async () => {
+    mockDbRows([
+      { key: "STRIPE_SECRET_KEY", value: "sk_test_abc123" },
+      { key: "STRIPE_WEBHOOK_SECRET", value: "whsec_test_xyz" },
+      { key: "AWS_REGION", value: "us-east-2" },
+    ]);
+    expect(await getSecret("STRIPE_SECRET_KEY")).toBe("sk_test_abc123");
+    expect(await getSecret("STRIPE_WEBHOOK_SECRET")).toBe("whsec_test_xyz");
+  });
+
+  it("getSecrets returns all vault keys including Stripe and AWS", async () => {
+    mockDbRows([
+      { key: "AWS_ACCESS_KEY_ID", value: "AKIA123" },
+      { key: "AWS_SECRET_ACCESS_KEY", value: "secret" },
+      { key: "AWS_REGION", value: "us-east-2" },
+      { key: "AWS_S3_BUCKET", value: "my-bucket" },
+      { key: "GOOGLE_CLIENT_ID", value: "gid-123" },
+      { key: "GOOGLE_CLIENT_SECRET", value: "gsec-456" },
+      { key: "STRIPE_SECRET_KEY", value: "sk_test_abc" },
+      { key: "STRIPE_WEBHOOK_SECRET", value: "whsec_test" },
+    ]);
+    const result = await getSecrets([
+      "STRIPE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+      "AWS_REGION",
+      "GOOGLE_CLIENT_ID",
+    ]);
+    expect(result).toEqual({
+      STRIPE_SECRET_KEY: "sk_test_abc",
+      STRIPE_WEBHOOK_SECRET: "whsec_test",
+      AWS_REGION: "us-east-2",
+      GOOGLE_CLIENT_ID: "gid-123",
+    });
+  });
+
+  it("should handle vault with all 8 expected keys", async () => {
+    const allKeys = [
+      "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_S3_BUCKET",
+      "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
+      "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+    ];
+    mockDbRows(allKeys.map((key) => ({ key, value: `value-for-${key}` })));
+    for (const key of allKeys) {
+      const result = await getSecret(key);
+      expect(result).toBe(`value-for-${key}`);
+    }
+  });
 });
