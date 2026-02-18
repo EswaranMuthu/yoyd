@@ -483,6 +483,35 @@ export default function Dashboard() {
           </Button>
         </nav>
 
+        <div className="px-4 py-3 border-t border-border/50" data-testid="billing-sidebar">
+          {paymentStatus?.hasCard ? (
+            <div className="flex items-center gap-3 px-2 py-1">
+              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium">Card on file</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatFileSize(paymentStatus.monthlyConsumedBytes ?? 0)} used this month
+                </p>
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              onClick={handleAddPaymentMethod}
+              disabled={billingLoading}
+              data-testid="button-sidebar-add-payment"
+            >
+              {billingLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <CreditCard className="w-4 h-4" />
+              )}
+              Add Payment Method
+            </Button>
+          )}
+        </div>
+
         {storageStats && (
           <div className="px-4 py-3 border-t border-border/50" data-testid="storage-usage">
             <div className="flex items-center gap-3">
