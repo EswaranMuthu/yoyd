@@ -239,7 +239,12 @@ export function useUploadManager() {
 
   const addFiles = useCallback(
     (files: File[], currentPath: string, relativePaths?: Map<File, string>) => {
-      const newItems: UploadItem[] = files.map((file) => ({
+      const filtered = files.filter((file) => {
+        const name = file.name;
+        return name && !name.startsWith(".");
+      });
+
+      const newItems: UploadItem[] = filtered.map((file) => ({
         id: generateId(),
         file,
         relativePath: relativePaths?.get(file),
