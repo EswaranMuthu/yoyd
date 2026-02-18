@@ -319,6 +319,7 @@ export async function registerRoutes(
       const object = await storage.upsertObject(insertObj);
       logger.routes.info("File upload completed", { user: username, key: strippedKey, size_bytes: file.size });
       recalcUserStorage(username).catch(() => {});
+      authStorage.addConsumedBytes(username, file.size).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       logger.routes.error("File upload failed", error, { user: req.authUser?.username });
@@ -363,6 +364,7 @@ export async function registerRoutes(
       const object = await storage.upsertObject(insertObj);
       logger.routes.debug("Upload confirmed", { user: username, key: input.key, size: metadata.size });
       recalcUserStorage(username).catch(() => {});
+      if (metadata.size) authStorage.addConsumedBytes(username, metadata.size).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -560,6 +562,7 @@ export async function registerRoutes(
       const object = await storage.upsertObject(insertObj);
       logger.routes.info("Multipart upload completed", { user: username, key: input.key, size: metadata?.size });
       recalcUserStorage(username).catch(() => {});
+      if (metadata?.size) authStorage.addConsumedBytes(username, metadata.size).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       if (error instanceof z.ZodError) {
