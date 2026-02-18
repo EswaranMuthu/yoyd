@@ -885,11 +885,13 @@ export default function Dashboard() {
                   const folderProgress = folderTotal > 0
                     ? Math.round(items.reduce((s, i) => s + i.progress, 0) / folderTotal)
                     : 0;
-                  const allDone = folderCompleted + folderFailed === folderTotal;
+                  const folderCancelled = items.filter((i) => i.status === "cancelled").length;
+                  const allDone = folderCompleted + folderFailed + folderCancelled === folderTotal;
                   const currentFile = items.find((i) => i.status === "uploading");
                   const currentFileName = currentFile
                     ? (currentFile.relativePath || currentFile.file.name).split("/").pop()
                     : null;
+                  const failedItems = items.filter((i) => i.status === "failed");
 
                   return (
                     <div
@@ -905,7 +907,7 @@ export default function Dashboard() {
                             {folderCompleted}/{folderTotal}
                           </span>
                         </div>
-                        <div className="shrink-0">
+                        <div className="shrink-0 flex items-center gap-1">
                           {allDone && folderFailed === 0 && (
                             <CheckCircle2 className="w-4 h-4 text-green-500" />
                           )}
@@ -928,6 +930,30 @@ export default function Dashboard() {
                           >
                             {currentFileName}
                           </p>
+                        </div>
+                      )}
+                      {failedItems.length > 0 && (
+                        <div className="mt-1.5 space-y-1" data-testid={`upload-folder-failures-${folderName}`}>
+                          <p className="text-xs text-destructive font-medium">{failedItems.length} failed:</p>
+                          {failedItems.map((fi) => {
+                            const fileName = (fi.relativePath || fi.file.name).split("/").pop();
+                            return (
+                              <div key={fi.id} className="flex items-center justify-between gap-2 pl-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs truncate" data-testid={`upload-failed-name-${fi.id}`}>{fileName}</p>
+                                  <p className="text-xs text-destructive/80 truncate">{fi.error || "Unknown error"}</p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => uploadManager.retryUpload(fi.id, currentPath)}
+                                  data-testid={`button-retry-${fi.id}`}
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
