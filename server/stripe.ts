@@ -71,14 +71,13 @@ export async function createInvoiceForUsage(
   month: number,
 ): Promise<string> {
   const stripe = getStripe();
-  const idempotencyKey = `billing-${stripeCustomerId}-${year}-${month}`;
 
   const invoice = await stripe.invoices.create({
     customer: stripeCustomerId,
     auto_advance: true,
     collection_method: "charge_automatically",
     metadata: { year: String(year), month: String(month) },
-  }, { idempotencyKey });
+  });
 
   await stripe.invoiceItems.create({
     customer: stripeCustomerId,
