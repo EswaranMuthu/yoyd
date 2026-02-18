@@ -143,20 +143,38 @@ export async function register(
 }
 
 export async function googleLogin(credential: string): Promise<AuthResponse> {
-  const response = await fetch("/api/auth/google", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ credential }),
-  });
+  const maxRetries = 2;
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || "Google login failed");
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Google login failed");
+      }
+
+      const data: AuthResponse = await response.json();
+      setTokens(data.accessToken, data.refreshToken, data.expiresIn);
+      return data;
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const isNetworkError = lastError.message === "Load failed" ||
+        lastError.message === "Failed to fetch" ||
+        lastError.message.includes("NetworkError");
+      if (!isNetworkError || attempt === maxRetries) {
+        throw lastError;
+      }
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
   }
 
-  const data: AuthResponse = await response.json();
-  setTokens(data.accessToken, data.refreshToken, data.expiresIn);
-  return data;
+  throw lastError || new Error("Google login failed");
 }
 
 export async function logout(): Promise<void> {
