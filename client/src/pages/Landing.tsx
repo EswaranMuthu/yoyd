@@ -21,6 +21,8 @@ declare global {
             client_id: string;
             callback: (response: { credential: string }) => void;
             auto_select?: boolean;
+            ux_mode?: string;
+            allowed_parent_origin?: string[];
           }) => void;
           renderButton: (
             element: HTMLElement,
@@ -56,7 +58,16 @@ export default function Landing() {
   const isSubmitting = isLoggingIn || isRegistering;
   const error = mode === "login" ? loginError : registerError;
 
-  const handleGoogleCallback = useCallback(async (response: { credential: string }) => {
+  const googleCallbackRef = useRef<(response: any) => void>();
+  googleCallbackRef.current = async (response: any) => {
+    if (!response?.credential) {
+      toast({
+        title: "Google login failed",
+        description: "No credential received from Google. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       await googleLogin({ credential: response.credential });
       setShowAuth(false);
@@ -68,7 +79,11 @@ export default function Landing() {
         variant: "destructive",
       });
     }
-  }, [googleLogin, toast]);
+  };
+
+  const handleGoogleCallback = useCallback((response: any) => {
+    googleCallbackRef.current?.(response);
+  }, []);
 
   useEffect(() => {
     fetch("/api/auth/google-client-id")
@@ -103,6 +118,8 @@ export default function Landing() {
     window.google.accounts.id.initialize({
       client_id: googleClientId,
       callback: handleGoogleCallback,
+      ux_mode: "popup",
+      allowed_parent_origin: [window.location.origin],
     });
     window.google.accounts.id.renderButton(container, {
       theme: "outline",

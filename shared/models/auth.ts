@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, varchar, bigint, integer, unique } from "drizzle-orm/pg-core";
 
 // User storage table.
 export const users = pgTable("users", {
@@ -13,6 +13,9 @@ export const users = pgTable("users", {
   authProvider: varchar("auth_provider").default("local"),
   googleSub: varchar("google_sub").unique(),
   createdAt: timestamp("created_at").defaultNow(),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  totalStorageBytes: bigint("total_storage_bytes", { mode: "number" }).default(0),
+  monthlyConsumedBytes: bigint("monthly_consumed_bytes", { mode: "number" }).default(0),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -36,7 +39,36 @@ export const secretsVault = pgTable("secrets_vault", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const billingRecords = pgTable("billing_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+  freeBytes: bigint("free_bytes", { mode: "number" }).notNull().default(0),
+  billableBytes: bigint("billable_bytes", { mode: "number" }).notNull().default(0),
+  costCents: integer("cost_cents").notNull().default(0),
+  stripeInvoiceId: varchar("stripe_invoice_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("billing_records_user_month_unique").on(table.userId, table.year, table.month),
+]);
+
+export const stripeEvents = pgTable("stripe_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  stripeEventId: varchar("stripe_event_id").unique().notNull(),
+  eventType: varchar("event_type").notNull(),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  invoiceId: varchar("invoice_id"),
+  amountCents: integer("amount_cents"),
+  status: varchar("status"),
+  payload: text("payload"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type RefreshToken = typeof refreshTokens.$inferSelect;
 export type SecretVault = typeof secretsVault.$inferSelect;
+export type BillingRecord = typeof billingRecords.$inferSelect;
+export type StripeEvent = typeof stripeEvents.$inferSelect;

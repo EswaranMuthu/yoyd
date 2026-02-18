@@ -69,6 +69,20 @@ export function useGetDownloadUrl() {
   });
 }
 
+export interface StorageStats {
+  totalBytes: number;
+  folderSizes: Record<string, number>;
+}
+
+export function useStorageStats(prefix?: string) {
+  const url = prefix
+    ? `/api/objects/storage-stats?prefix=${encodeURIComponent(prefix)}`
+    : "/api/objects/storage-stats";
+  return useQuery<StorageStats>({
+    queryKey: [url],
+  });
+}
+
 export function useDeleteObjects() {
   return useMutation<{ deleted: number }, Error, { keys: string[] }>({
     mutationFn: async (data) => {

@@ -37,7 +37,8 @@ The server handles API requests through Express middleware, with routes register
 - **Schema Location**: `shared/schema.ts`, `shared/models/auth.ts`
 - **Migrations**: Drizzle Kit with `db:push` command
 - **Tables**:
-  - `users`: User accounts (supports password and Google OAuth)
+  - `users`: User accounts (supports password and Google OAuth), includes `total_storage_bytes` (bigint) for current storage and `monthly_consumed_bytes` (bigint) for cumulative upload tracking per billing cycle
+  - `billing_records`: Monthly billing history per user (year, month, consumed_bytes, free_bytes, billable_bytes, cost_cents); unique constraint on (user_id, year, month)
   - `refresh_tokens`: JWT refresh tokens with expiry and rotation
   - `s3_objects`: Cached metadata about S3 objects for efficient browsing
 
@@ -99,6 +100,20 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
   - `client/src/pages/Dashboard.test.ts` - Dashboard file utilities
   - `shared/routes.test.ts` - Shared route schema validation
   - `client/src/hooks/use-upload-manager.test.ts` - Upload manager utilities, multipart logic, progress tracking
+
+### Usage-Based Billing (Stripe)
+- **Model**: Cumulative consumption — tracks total bytes uploaded per month (uploads + re-uploads, not reduced by deletions)
+- **Free Tier**: 10 GB/month free
+- **Overage**: $0.10/GB (rounded up) billed at end of month
+- **Stripe Integration**: `server/stripe.ts` — lazy-initialized Stripe client using `STRIPE_SECRET_KEY` from env
+- **Billing Job**: `server/billing.ts` — `runMonthlyBilling(year, month)` processes all users, creates billing records, charges via Stripe invoices, resets counters; fully idempotent
+- **Payment Flow**: Dashboard shows banner when user exceeds free tier without a card → Stripe Checkout (setup mode) → card saved → invoices auto-charged
+- **API Endpoints**:
+  - `POST /api/stripe/checkout-session` — Creates Stripe Checkout session for adding payment method
+  - `GET /api/stripe/payment-status` — Returns billing status (hasCard, exceededFreeTier, monthlyConsumedBytes, needsPaymentMethod)
+  - `POST /api/stripe/webhook` — Handles Stripe webhook events (checkout.session.completed, invoice.paid, invoice.payment_failed)
+- **Database Tables**: `billing_records` (year, month, freeBytes, billableBytes, costCents, stripeInvoiceId); `users.stripeCustomerId`, `users.monthlyConsumedBytes`
+- **Frontend**: Dashboard billing banner in `client/src/pages/Dashboard.tsx` — shows warning when payment needed, confirmation when card on file
 
 ## External Dependencies
 

@@ -142,21 +142,66 @@ export async function register(
   return data;
 }
 
-export async function googleLogin(credential: string): Promise<AuthResponse> {
-  const response = await fetch("/api/auth/google", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ credential }),
+function xhrPost(url: string, body: object): Promise<{ status: number; data: any }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.onload = () => {
+      try {
+        resolve({ status: xhr.status, data: JSON.parse(xhr.responseText) });
+      } catch {
+        reject(new Error(`Invalid response: ${xhr.responseText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Network error during Google login"));
+    xhr.ontimeout = () => reject(new Error("Request timed out"));
+    xhr.timeout = 15000;
+    xhr.send(JSON.stringify(body));
   });
+}
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || "Google login failed");
+export async function googleLogin(credential: string): Promise<AuthResponse> {
+  let lastError: Error | null = null;
+
+  try {
+    const response = await fetch("/api/auth/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Google login failed");
+    }
+
+    const data: AuthResponse = await response.json();
+    setTokens(data.accessToken, data.refreshToken, data.expiresIn);
+    return data;
+  } catch (err: any) {
+    lastError = err instanceof Error ? err : new Error(String(err));
+    const isNetworkError = lastError.message === "Load failed" ||
+      lastError.message === "Failed to fetch" ||
+      lastError.message.includes("NetworkError") ||
+      lastError.message.includes("network");
+
+    if (!isNetworkError) {
+      throw lastError;
+    }
   }
 
-  const data: AuthResponse = await response.json();
-  setTokens(data.accessToken, data.refreshToken, data.expiresIn);
-  return data;
+  try {
+    const result = await xhrPost("/api/auth/google", { credential });
+    if (result.status !== 200) {
+      throw new Error(result.data?.message || "Google login failed");
+    }
+    const data: AuthResponse = result.data;
+    setTokens(data.accessToken, data.refreshToken, data.expiresIn);
+    return data;
+  } catch (err: any) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
 }
 
 export async function logout(): Promise<void> {

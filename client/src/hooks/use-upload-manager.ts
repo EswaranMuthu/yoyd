@@ -1,11 +1,12 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
-import { fetchWithAuth } from "@/lib/auth";
+import { fetchWithAuth, getAccessToken, isTokenExpiringSoon, refreshAccessToken } from "@/lib/auth";
 
 export const MULTIPART_THRESHOLD = 100 * 1024 * 1024;
 export const PART_SIZE = 10 * 1024 * 1024;
 export const MAX_CONCURRENT_PARTS = 3;
+export const MAX_CONCURRENT_UPLOADS = 5;
 
 export type UploadStatus = "queued" | "uploading" | "completed" | "failed" | "cancelled";
 
@@ -39,6 +40,10 @@ export function useUploadManager() {
       const controller = new AbortController();
       abortControllersRef.current.set(item.id, controller);
 
+      if (isTokenExpiringSoon()) {
+        await refreshAccessToken();
+      }
+
       const formData = new FormData();
       formData.append("file", item.file);
       if (parentKey) {
@@ -48,8 +53,9 @@ export function useUploadManager() {
       return new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/objects/upload");
+        xhr.timeout = 120000;
 
-        const token = localStorage.getItem("accessToken");
+        const token = getAccessToken();
         if (token) {
           xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         }
@@ -64,18 +70,21 @@ export function useUploadManager() {
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve();
+          } else if (xhr.status === 401) {
+            reject(new Error("Session expired. Please log in again."));
           } else {
             try {
               const err = JSON.parse(xhr.responseText);
               reject(new Error(err.message || "Upload failed"));
             } catch {
-              reject(new Error("Upload failed"));
+              reject(new Error(`Upload failed (${xhr.status})`));
             }
           }
         };
 
         xhr.onerror = () => reject(new Error("Network error"));
         xhr.onabort = () => reject(new Error("Cancelled"));
+        xhr.ontimeout = () => reject(new Error("Upload timed out"));
 
         controller.signal.addEventListener("abort", () => xhr.abort());
 
@@ -150,71 +159,68 @@ export function useUploadManager() {
     [updateUpload]
   );
 
-  const processQueue = useCallback(async (currentPath: string) => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-    setIsProcessing(true);
+  const queueRef = useRef<UploadItem[]>([]);
+  const activeWorkersRef = useRef(0);
+
+  const processOneItem = useCallback(async (itemToProcess: UploadItem, currentPath: string) => {
+    const parentKey = itemToProcess.relativePath
+      ? (() => {
+          const parts = itemToProcess.relativePath.split("/");
+          if (parts.length > 1) {
+            const folderPath = parts.slice(0, -1).join("/") + "/";
+            return currentPath ? currentPath + folderPath : folderPath;
+          }
+          return currentPath;
+        })()
+      : currentPath;
 
     try {
-      while (true) {
-        let nextItem: UploadItem | undefined;
-        setUploads((prev) => {
-          nextItem = prev.find((u) => u.status === "queued");
-          if (nextItem) {
-            return prev.map((u) =>
-              u.id === nextItem!.id ? { ...u, status: "uploading" as UploadStatus } : u
-            );
-          }
-          return prev;
-        });
+      console.log("[upload] Starting upload:", itemToProcess.file.name, "parentKey:", parentKey, "size:", itemToProcess.file.size);
+      if (itemToProcess.file.size > MULTIPART_THRESHOLD) {
+        await uploadLargeFile(itemToProcess, parentKey);
+      } else {
+        await uploadSmallFile(itemToProcess, parentKey);
+      }
+      console.log("[upload] Completed:", itemToProcess.file.name);
+      updateUpload(itemToProcess.id, { status: "completed", progress: 100 });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Upload failed";
+      console.error("[upload] Failed:", itemToProcess.file.name, msg);
 
-        if (!nextItem) break;
-        const itemToProcess = nextItem;
-
-        const parentKey = itemToProcess.relativePath
-          ? (() => {
-              const parts = itemToProcess.relativePath.split("/");
-              if (parts.length > 1) {
-                const folderPath = parts.slice(0, -1).join("/") + "/";
-                return currentPath ? currentPath + folderPath : folderPath;
-              }
-              return currentPath;
-            })()
-          : currentPath;
-
+      let currentItem: UploadItem | undefined;
+      setUploads((prev) => {
+        currentItem = prev.find((u) => u.id === itemToProcess.id);
+        return prev;
+      });
+      if (currentItem?.uploadId && currentItem?.key) {
         try {
-          if (itemToProcess.file.size > MULTIPART_THRESHOLD) {
-            await uploadLargeFile(itemToProcess, parentKey);
-          } else {
-            await uploadSmallFile(itemToProcess, parentKey);
-          }
-          updateUpload(itemToProcess.id, { status: "completed", progress: 100 });
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : "Upload failed";
-
-          let currentItem: UploadItem | undefined;
-          setUploads((prev) => {
-            currentItem = prev.find((u) => u.id === itemToProcess.id);
-            return prev;
+          await apiRequest("POST", "/api/objects/multipart/abort", {
+            key: currentItem.key,
+            uploadId: currentItem.uploadId,
           });
-          if (currentItem?.uploadId && currentItem?.key) {
-            try {
-              await apiRequest("POST", "/api/objects/multipart/abort", {
-                key: currentItem.key,
-                uploadId: currentItem.uploadId,
-              });
-            } catch {
-            }
-          }
-
-          if (msg === "Cancelled") {
-            updateUpload(itemToProcess.id, { status: "cancelled", error: msg });
-          } else {
-            updateUpload(itemToProcess.id, { status: "failed", error: msg });
-          }
+        } catch {
         }
       }
-    } finally {
+
+      if (msg === "Cancelled") {
+        updateUpload(itemToProcess.id, { status: "cancelled", error: msg });
+      } else {
+        updateUpload(itemToProcess.id, { status: "failed", error: msg });
+      }
+    }
+  }, [uploadSmallFile, uploadLargeFile, updateUpload]);
+
+  const runWorker = useCallback(async (currentPath: string) => {
+    while (true) {
+      const nextItem = queueRef.current.shift();
+      if (!nextItem) break;
+
+      updateUpload(nextItem.id, { status: "uploading" });
+      await processOneItem(nextItem, currentPath);
+    }
+
+    activeWorkersRef.current--;
+    if (activeWorkersRef.current === 0) {
       processingRef.current = false;
       setIsProcessing(false);
       queryClient.invalidateQueries({
@@ -222,11 +228,28 @@ export function useUploadManager() {
           typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects"),
       });
     }
-  }, [uploadSmallFile, uploadLargeFile, updateUpload]);
+  }, [processOneItem, updateUpload]);
+
+  const processQueue = useCallback(async (currentPath: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
+
+    const workersToStart = Math.min(MAX_CONCURRENT_UPLOADS, queueRef.current.length);
+    activeWorkersRef.current = workersToStart;
+    for (let i = 0; i < workersToStart; i++) {
+      runWorker(currentPath);
+    }
+  }, [runWorker]);
 
   const addFiles = useCallback(
     (files: File[], currentPath: string, relativePaths?: Map<File, string>) => {
-      const newItems: UploadItem[] = files.map((file) => ({
+      const filtered = files.filter((file) => {
+        const name = file.name;
+        return name && !name.startsWith(".");
+      });
+
+      const newItems: UploadItem[] = filtered.map((file) => ({
         id: generateId(),
         file,
         relativePath: relativePaths?.get(file),
@@ -234,6 +257,7 @@ export function useUploadManager() {
         progress: 0,
       }));
 
+      queueRef.current.push(...newItems);
       setUploads((prev) => [...prev, ...newItems]);
 
       setTimeout(() => processQueue(currentPath), 0);
@@ -261,13 +285,17 @@ export function useUploadManager() {
 
   const retryUpload = useCallback(
     (id: string, currentPath: string) => {
-      setUploads((prev) =>
-        prev.map((u) =>
+      setUploads((prev) => {
+        const item = prev.find((u) => u.id === id && (u.status === "failed" || u.status === "cancelled"));
+        if (item) {
+          queueRef.current.push({ ...item, status: "queued", progress: 0, error: undefined });
+        }
+        return prev.map((u) =>
           u.id === id && (u.status === "failed" || u.status === "cancelled")
             ? { ...u, status: "queued" as UploadStatus, progress: 0, error: undefined }
             : u
-        )
-      );
+        );
+      });
       setTimeout(() => processQueue(currentPath), 0);
     },
     [processQueue]
@@ -287,6 +315,21 @@ export function useUploadManager() {
   const completedCount = uploads.filter((u) => u.status === "completed").length;
   const failedCount = uploads.filter((u) => u.status === "failed").length;
 
+  const folderGroups = useMemo(() => {
+    const groups = new Map<string, UploadItem[]>();
+    const standalone: UploadItem[] = [];
+    for (const item of uploads) {
+      if (item.relativePath && item.relativePath.includes("/")) {
+        const topFolder = item.relativePath.split("/")[0];
+        if (!groups.has(topFolder)) groups.set(topFolder, []);
+        groups.get(topFolder)!.push(item);
+      } else {
+        standalone.push(item);
+      }
+    }
+    return { folders: groups, standalone };
+  }, [uploads]);
+
   return {
     uploads,
     isProcessing,
@@ -298,5 +341,6 @@ export function useUploadManager() {
     activeCount,
     completedCount,
     failedCount,
+    folderGroups,
   };
 }

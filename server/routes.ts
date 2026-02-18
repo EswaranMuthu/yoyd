@@ -25,6 +25,56 @@ import {
 } from "./s3";
 import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject, sanitizeFileName, isValidFileName, hasPathTraversal, cleanETag } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
+import { users, billingRecords, stripeEvents } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
+import { db } from "./db";
+import { authStorage } from "./auth/storage";
+import { createStripeCustomer, createCheckoutSession, hasPaymentMethod, setDefaultPaymentMethod, constructWebhookEvent } from "./stripe";
+
+async function recalcUserStorage(username: string) {
+  try {
+    const userPrefix = getUserPrefix(username);
+    const totalBytes = await storage.getTotalStorageForUser(userPrefix);
+    await authStorage.updateUserStorageBytes(username, totalBytes);
+    logger.routes.debug("Updated user storage", { user: username, totalBytes });
+  } catch (err: any) {
+    logger.routes.error("Failed to update user storage bytes", err, { user: username });
+  }
+}
+
+async function ensureIntermediateFolders(fullKey: string, username: string) {
+  const userPrefix = getUserPrefix(username);
+  const parts = fullKey.slice(userPrefix.length).split("/").filter(Boolean);
+  if (parts.length <= 1) return;
+
+  let accumulated = userPrefix;
+  for (let i = 0; i < parts.length - 1; i++) {
+    accumulated += parts[i] + "/";
+    const existing = await storage.getObjectByKey(accumulated);
+    if (!existing) {
+      logger.routes.debug("Auto-creating folder for upload", { user: username, folder: stripUserPrefix(accumulated, username) });
+      try {
+        await createS3Folder(accumulated);
+      } catch {
+      }
+      const folderParts = accumulated.split("/").filter(Boolean);
+      let parentKey: string | null = null;
+      if (folderParts.length > 1) {
+        parentKey = folderParts.slice(0, -1).join("/") + "/";
+      }
+      await storage.upsertObject({
+        key: accumulated,
+        name: parts[i],
+        parentKey,
+        isFolder: true,
+        size: null,
+        mimeType: null,
+        etag: null,
+        lastModified: new Date(),
+      });
+    }
+  }
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -48,6 +98,31 @@ export async function registerRoutes(
     } catch (error) {
       logger.routes.error("Failed to list objects", error, { user: req.authUser?.username });
       res.status(500).json({ message: "Failed to list objects" });
+    }
+  });
+
+  app.get("/api/objects/storage-stats", isAuthenticated, async (req, res) => {
+    try {
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
+      const clientPrefix = (req.query.prefix as string) || "";
+      const fullPrefix = clientPrefix ? addUserPrefix(clientPrefix, username) : userPrefix;
+
+      const [totalBytes, folderSizesMap] = await Promise.all([
+        storage.getTotalStorageForUser(userPrefix),
+        storage.getFolderSizes(userPrefix, fullPrefix),
+      ]);
+
+      const folderSizes: Record<string, number> = {};
+      for (const [key, size] of folderSizesMap) {
+        const stripped = stripUserPrefix(key, username);
+        folderSizes[stripped] = size;
+      }
+
+      res.json({ totalBytes, folderSizes });
+    } catch (error) {
+      logger.routes.error("Failed to get storage stats", error, { user: req.authUser?.username });
+      res.status(500).json({ message: "Failed to get storage stats" });
     }
   });
 
@@ -110,6 +185,7 @@ export async function registerRoutes(
       }
 
       logger.routes.info("Sync completed", { user: username, synced, deleted, s3_total: s3Objects.length, db_total: dbObjects.length });
+      recalcUserStorage(username).catch(() => {});
       res.json({ synced, deleted });
     } catch (error: any) {
       logger.routes.error("Sync failed", error, { user: req.authUser?.username });
@@ -223,6 +299,7 @@ export async function registerRoutes(
       const contentType = file.mimetype || "application/octet-stream";
 
       await uploadToS3(key, file.buffer, contentType);
+      await ensureIntermediateFolders(key, username);
 
       const strippedKey = stripUserPrefix(key, username);
       const parts = key.split("/").filter((p: string) => p);
@@ -245,6 +322,8 @@ export async function registerRoutes(
 
       const object = await storage.upsertObject(insertObj);
       logger.routes.info("File upload completed", { user: username, key: strippedKey, size_bytes: file.size });
+      recalcUserStorage(username).catch(() => {});
+      authStorage.addConsumedBytes(username, file.size).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       logger.routes.error("File upload failed", error, { user: req.authUser?.username });
@@ -266,6 +345,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Object not found in S3" });
       }
 
+      await ensureIntermediateFolders(fullKey, username);
+
       const parts = fullKey.split("/").filter((p) => p);
       const name = parts[parts.length - 1] || fullKey;
       let parentKey: string | null = null;
@@ -286,6 +367,8 @@ export async function registerRoutes(
 
       const object = await storage.upsertObject(insertObj);
       logger.routes.debug("Upload confirmed", { user: username, key: input.key, size: metadata.size });
+      recalcUserStorage(username).catch(() => {});
+      if (metadata.size) authStorage.addConsumedBytes(username, metadata.size).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -366,6 +449,7 @@ export async function registerRoutes(
       }
 
       logger.routes.info("Delete completed", { user: username, deleted: uniqueKeys.length });
+      recalcUserStorage(username).catch(() => {});
       res.json({ deleted: uniqueKeys.length });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -383,7 +467,7 @@ export async function registerRoutes(
     try {
       const username = req.authUser!.username;
       const input = api.objects.initiateMultipart.input.parse(req.body);
-      logger.routes.info("Multipart upload initiate", { user: username, fileName: input.fileName, mimeType: input.mimeType, fileSize: input.fileSize });
+      logger.routes.info("Multipart upload initiate", { user: username, fileName: input.fileName, mimeType: input.mimeType });
 
       const sanitizedName = sanitizeFileName(input.fileName);
       if (!isValidFileName(sanitizedName)) {
@@ -458,6 +542,7 @@ export async function registerRoutes(
 
       logger.routes.info("Completing multipart upload", { user: username, key: input.key, totalParts: input.parts.length });
       await completeS3Multipart(fullKey, input.uploadId, input.parts);
+      await ensureIntermediateFolders(fullKey, username);
 
       const metadata = await getObjectMetadata(fullKey);
       const parts = fullKey.split("/").filter((p) => p);
@@ -480,6 +565,8 @@ export async function registerRoutes(
 
       const object = await storage.upsertObject(insertObj);
       logger.routes.info("Multipart upload completed", { user: username, key: input.key, size: metadata?.size });
+      recalcUserStorage(username).catch(() => {});
+      if (metadata?.size) authStorage.addConsumedBytes(username, metadata.size).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -518,6 +605,132 @@ export async function registerRoutes(
       }
       logger.routes.error("Failed to abort multipart upload", error, { user: req.authUser?.username });
       res.status(500).json({ message: "Failed to abort multipart upload" });
+    }
+  });
+
+  // === STRIPE BILLING ROUTES ===
+
+  app.post("/api/stripe/checkout-session", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.authUser!;
+      const dbUser = await authStorage.getUserByUsername(user.username);
+      if (!dbUser) return res.status(404).json({ message: "User not found" });
+
+      let stripeCustomerId = dbUser.stripeCustomerId;
+      if (!stripeCustomerId) {
+        stripeCustomerId = await createStripeCustomer(dbUser.email, dbUser.username);
+        await authStorage.updateStripeCustomerId(dbUser.id, stripeCustomerId);
+      }
+
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const { sessionId, url } = await createCheckoutSession(
+        stripeCustomerId,
+        `${origin}/dashboard?payment=success`,
+        `${origin}/dashboard?payment=cancelled`,
+      );
+
+      res.json({ sessionId, url });
+    } catch (error: any) {
+      logger.routes.error("Failed to create checkout session", error);
+      res.status(500).json({ message: "Failed to create checkout session" });
+    }
+  });
+
+  app.get("/api/stripe/payment-status", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.authUser!;
+      const dbUser = await authStorage.getUserByUsername(user.username);
+      if (!dbUser) return res.status(404).json({ message: "User not found" });
+
+      const FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024;
+      const consumed = dbUser.monthlyConsumedBytes ?? 0;
+      const exceededFreeTier = consumed > FREE_TIER_BYTES;
+
+      let hasCard = false;
+      if (dbUser.stripeCustomerId) {
+        hasCard = await hasPaymentMethod(dbUser.stripeCustomerId);
+      }
+
+      res.json({
+        hasCard,
+        exceededFreeTier,
+        monthlyConsumedBytes: consumed,
+        needsPaymentMethod: exceededFreeTier && !hasCard,
+      });
+    } catch (error: any) {
+      logger.routes.error("Failed to check payment status", error);
+      res.status(500).json({ message: "Failed to check payment status" });
+    }
+  });
+
+  app.post("/api/stripe/webhook", async (req, res) => {
+    try {
+      const signature = req.headers["stripe-signature"] as string;
+      if (!signature) return res.status(400).json({ message: "Missing signature" });
+
+      const event = await constructWebhookEvent(req.rawBody as Buffer, signature);
+      const obj = event.data.object as any;
+
+      const stripeCustomerId = obj.customer || null;
+      let invoiceId: string | null = null;
+      let amountCents: number | null = null;
+      let status: string | null = null;
+
+      let matchedUser = null;
+      if (stripeCustomerId) {
+        const found = await db.select({ id: users.id }).from(users).where(eq(users.stripeCustomerId, stripeCustomerId)).limit(1);
+        if (found.length > 0) matchedUser = found[0].id;
+      }
+
+      switch (event.type) {
+        case "checkout.session.completed": {
+          status = "completed";
+          if (stripeCustomerId) {
+            try {
+              await setDefaultPaymentMethod(stripeCustomerId);
+            } catch (e: any) {
+              logger.routes.error("Failed to set default payment method", e);
+            }
+          }
+          logger.routes.info("Stripe checkout completed", { customerId: stripeCustomerId });
+          break;
+        }
+        case "invoice.paid": {
+          invoiceId = obj.id;
+          amountCents = obj.amount_paid;
+          status = "paid";
+          logger.routes.info("Stripe invoice paid", { invoiceId, customerId: stripeCustomerId, amountCents });
+          break;
+        }
+        case "invoice.payment_failed": {
+          invoiceId = obj.id;
+          amountCents = obj.amount_due;
+          status = "failed";
+          logger.routes.warn("Stripe invoice payment failed", { invoiceId, customerId: stripeCustomerId });
+          break;
+        }
+        default:
+          status = obj.status || null;
+          logger.routes.debug("Unhandled Stripe event", { type: event.type });
+      }
+
+      await db.insert(stripeEvents).values({
+        stripeEventId: event.id,
+        eventType: event.type,
+        stripeCustomerId,
+        userId: matchedUser,
+        invoiceId,
+        amountCents,
+        status,
+        payload: JSON.stringify(event.data.object),
+      }).onConflictDoNothing();
+
+      logger.routes.info("Stripe event logged", { eventId: event.id, type: event.type });
+
+      res.json({ received: true });
+    } catch (error: any) {
+      logger.routes.error("Stripe webhook error", error);
+      res.status(400).json({ message: "Webhook error" });
     }
   });
 

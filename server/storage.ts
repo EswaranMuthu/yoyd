@@ -1,6 +1,6 @@
 import { s3Objects, type S3Object, type InsertS3Object } from "@shared/schema";
 import { db } from "./db";
-import { eq, like, isNull } from "drizzle-orm";
+import { eq, like, isNull, sql, and, or } from "drizzle-orm";
 import { logger } from "./logger";
 
 export interface IStorage {
@@ -16,6 +16,8 @@ export interface IStorage {
   upsertObject(object: InsertS3Object): Promise<S3Object>;
   getAllObjects(): Promise<S3Object[]>;
   clearAllObjects(): Promise<void>;
+  getTotalStorageForUser(userPrefix: string): Promise<number>;
+  getFolderSizes(userPrefix: string, parentKey: string): Promise<Map<string, number>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -95,6 +97,54 @@ export class DatabaseStorage implements IStorage {
   async clearAllObjects(): Promise<void> {
     logger.storage.warn("clearAllObjects - removing all objects from database");
     await db.delete(s3Objects);
+  }
+
+  async getTotalStorageForUser(userPrefix: string): Promise<number> {
+    logger.storage.debug("getTotalStorageForUser", { userPrefix });
+    const result = await db
+      .select({ total: sql<string>`COALESCE(SUM(${s3Objects.size}), 0)` })
+      .from(s3Objects)
+      .where(and(like(s3Objects.key, `${userPrefix}%`), eq(s3Objects.isFolder, false)));
+    return Number(result[0]?.total ?? 0);
+  }
+
+  async getFolderSizes(userPrefix: string, parentKey: string): Promise<Map<string, number>> {
+    logger.storage.debug("getFolderSizes", { userPrefix, parentKey });
+    const folders = await db
+      .select({ key: s3Objects.key })
+      .from(s3Objects)
+      .where(and(eq(s3Objects.parentKey, parentKey), eq(s3Objects.isFolder, true)));
+
+    if (folders.length === 0) return new Map();
+
+    const caseWhenParts = folders.map(
+      (f) => sql.raw(`WHEN key LIKE '${f.key.replace(/'/g, "''")}%' THEN '${f.key.replace(/'/g, "''")}'`)
+    );
+    const caseExpr = sql`CASE ${sql.join(caseWhenParts, sql` `)} ELSE NULL END`;
+
+    const likeConditions = folders.map(
+      (f) => like(s3Objects.key, `${f.key}%`)
+    );
+
+    const results = await db
+      .select({
+        folder: caseExpr,
+        total: sql<string>`COALESCE(SUM(${s3Objects.size}), 0)`,
+      })
+      .from(s3Objects)
+      .where(and(or(...likeConditions), eq(s3Objects.isFolder, false)))
+      .groupBy(caseExpr);
+
+    const sizeMap = new Map<string, number>();
+    for (const f of folders) {
+      sizeMap.set(f.key, 0);
+    }
+    for (const row of results) {
+      if (row.folder) {
+        sizeMap.set(row.folder, Number(row.total));
+      }
+    }
+    return sizeMap;
   }
 }
 

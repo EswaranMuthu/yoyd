@@ -1,8 +1,9 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects } from "@/hooks/use-s3";
+import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects, useStorageStats } from "@/hooks/use-s3";
 import { fetchWithAuth } from "@/lib/auth";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatFileSize, generateBreadcrumbs } from "@/lib/file-utils";
 import { useUploadManager, type UploadItem } from "@/hooks/use-upload-manager";
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,9 @@ import {
   RotateCcw,
   ChevronDown,
   ChevronUp,
-  Ban
+  Ban,
+  CreditCard,
+  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { S3Object } from "@shared/schema";
@@ -81,16 +84,66 @@ export default function Dashboard() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(false);
+  const [isUploadPanelVisible, setIsUploadPanelVisible] = useState(true);
+  const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const { data: objects, isLoading } = useS3Objects(currentPath);
+  const { data: storageStats } = useStorageStats(currentPath);
   const syncMutation = useSyncObjects();
   const createFolderMutation = useCreateFolder();
   const getDownloadUrlMutation = useGetDownloadUrl();
   const deleteMutation = useDeleteObjects();
   const uploadManager = useUploadManager();
+
+  const { data: paymentStatus } = useQuery<{
+    hasCard: boolean;
+    exceededFreeTier: boolean;
+    monthlyConsumedBytes: number;
+    needsPaymentMethod: boolean;
+  }>({
+    queryKey: ["/api/stripe/payment-status"],
+    staleTime: 60_000,
+  });
+
+  const [billingLoading, setBillingLoading] = useState(false);
+  const handleAddPaymentMethod = useCallback(async () => {
+    setBillingLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/stripe/checkout-session");
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Payment setup failed",
+        description: "Could not open the payment setup page. Please try again.",
+      });
+      setBillingLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const payment = params.get("payment");
+    if (payment === "success") {
+      toast({
+        title: "Payment method added",
+        description: "Your card has been saved. You're all set!",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/stripe/payment-status"] });
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (payment === "cancelled") {
+      toast({
+        variant: "destructive",
+        title: "Payment setup cancelled",
+        description: "You can add a payment method anytime from the dashboard.",
+      });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [toast]);
 
   const breadcrumbs = generateBreadcrumbs(currentPath);
 
@@ -181,6 +234,34 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [previewImage, handlePrevImage, handleNextImage]);
 
+  const cancelledCount = useMemo(
+    () => uploadManager.uploads.filter((u) => u.status === "cancelled").length,
+    [uploadManager.uploads]
+  );
+
+  useEffect(() => {
+    if (autoDismissTimerRef.current) {
+      clearTimeout(autoDismissTimerRef.current);
+      autoDismissTimerRef.current = null;
+    }
+    const hasAnyFailure = uploadManager.uploads.some(
+      (u) => u.status === "failed" || u.status === "cancelled"
+    );
+    const allSucceeded =
+      uploadManager.uploads.length > 0 &&
+      !uploadManager.isProcessing &&
+      !hasAnyFailure &&
+      uploadManager.uploads.every((u) => u.status === "completed");
+    if (allSucceeded) {
+      autoDismissTimerRef.current = setTimeout(() => {
+        uploadManager.clearCompleted();
+      }, 3000);
+    }
+    return () => {
+      if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
+    };
+  }, [uploadManager.uploads.length, uploadManager.isProcessing, uploadManager.failedCount, cancelledCount, uploadManager.completedCount, uploadManager.clearCompleted, uploadManager.uploads]);
+
   const handleDownloadFromPreview = useCallback(() => {
     if (previewImage) {
       window.open(previewImage.url, "_blank");
@@ -233,6 +314,7 @@ export default function Dashboard() {
     if (!files || files.length === 0) return;
     uploadManager.addFiles(Array.from(files), currentPath);
     setIsUploadPanelOpen(true);
+    setIsUploadPanelVisible(true);
     e.target.value = "";
   }, [currentPath, uploadManager]);
 
@@ -250,6 +332,7 @@ export default function Dashboard() {
     }
     uploadManager.addFiles(fileArray, currentPath, relativePaths);
     setIsUploadPanelOpen(true);
+    setIsUploadPanelVisible(true);
     e.target.value = "";
   }, [currentPath, uploadManager]);
 
@@ -338,6 +421,7 @@ export default function Dashboard() {
     if (allFiles.length > 0) {
       uploadManager.addFiles(allFiles, currentPath, relativePaths.size > 0 ? relativePaths : undefined);
       setIsUploadPanelOpen(true);
+      setIsUploadPanelVisible(true);
     }
   }, [currentPath, uploadManager, traverseFileTree]);
 
@@ -397,6 +481,61 @@ export default function Dashboard() {
             Storage Browser
           </Button>
         </nav>
+
+        <div className="px-4 py-3 border-t border-border/50" data-testid="billing-sidebar">
+          {paymentStatus?.hasCard ? (
+            <div className="flex items-center gap-3 px-2 py-1">
+              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium">Card on file</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatFileSize(paymentStatus.monthlyConsumedBytes ?? 0)} used this month
+                </p>
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              onClick={handleAddPaymentMethod}
+              disabled={billingLoading}
+              data-testid="button-sidebar-add-payment"
+            >
+              {billingLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <CreditCard className="w-4 h-4" />
+              )}
+              Add Payment Method
+            </Button>
+          )}
+        </div>
+
+        {storageStats && (
+          <div className="px-4 py-3 border-t border-border/50" data-testid="storage-usage">
+            <div className="flex items-center gap-3">
+              <div className="relative w-11 h-11 shrink-0">
+                <svg className="w-11 h-11 -rotate-90" viewBox="0 0 44 44">
+                  <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3" className="text-border" />
+                  <circle
+                    cx="22" cy="22" r="18" fill="none"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    className="text-primary"
+                    strokeDasharray={`${Math.min((storageStats.totalBytes / (5 * 1024 * 1024 * 1024)) * 113, 113)} 113`}
+                  />
+                </svg>
+                <HardDrive className="w-4 h-4 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold" data-testid="text-total-storage">
+                  {formatFileSize(storageStats.totalBytes)}
+                </p>
+                <p className="text-xs text-muted-foreground">total storage used</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="p-4 border-t border-border/50">
           <div className="flex items-center gap-3 mb-4 px-2">
@@ -464,6 +603,57 @@ export default function Dashboard() {
             ))}
           </div>
         </header>
+
+        {paymentStatus?.needsPaymentMethod && (
+          <Card className="mb-4 border-yellow-500/50 dark:border-yellow-500/30" data-testid="billing-banner">
+            <CardContent className="flex items-center gap-4 py-4">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-yellow-500/10 shrink-0">
+                <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium" data-testid="text-billing-title">Payment method needed</p>
+                <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-billing-desc">
+                  You've used {formatFileSize(paymentStatus.monthlyConsumedBytes)} this month (10 GB free).
+                  Add a payment method so we can bill any overages at $0.10/GB.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleAddPaymentMethod}
+                disabled={billingLoading}
+                data-testid="button-add-payment"
+              >
+                {billingLoading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CreditCard className="w-4 h-4 mr-2" />
+                )}
+                Add Card
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {paymentStatus?.exceededFreeTier && paymentStatus?.hasCard && (
+          <Card className="mb-4 border-green-500/50 dark:border-green-500/30" data-testid="billing-ok-banner">
+            <CardContent className="flex items-center gap-4 py-4">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-green-500/10 shrink-0">
+                <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium" data-testid="text-billing-ok-title">Payment method on file</p>
+                <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-billing-ok-desc">
+                  You've used {formatFileSize(paymentStatus.monthlyConsumedBytes)} this month. 
+                  Overages beyond 10 GB will be billed at $0.10/GB at the end of the billing cycle.
+                </p>
+              </div>
+              <Badge variant="secondary" data-testid="badge-card-on-file">
+                <CreditCard className="w-3 h-3 mr-1" />
+                Card on file
+              </Badge>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader className="pb-3">
@@ -643,7 +833,11 @@ export default function Dashboard() {
                         )}
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-muted-foreground">
-                        {object.isFolder ? "-" : formatFileSize(object.size)}
+                        {object.isFolder
+                          ? (storageStats?.folderSizes[object.key] != null
+                              ? formatFileSize(storageStats.folderSizes[object.key])
+                              : "-")
+                          : formatFileSize(object.size)}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell text-muted-foreground">
                         {object.lastModified 
@@ -797,7 +991,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {uploadManager.uploads.length > 0 && (
+        {uploadManager.uploads.length > 0 && (isUploadPanelVisible || uploadManager.isProcessing) && (
           <div
             className="fixed bottom-4 right-4 z-30 w-96 max-w-[calc(100vw-2rem)] bg-card border border-border rounded-md shadow-lg"
             data-testid="upload-panel"
@@ -816,16 +1010,20 @@ export default function Dashboard() {
                 </span>
               </div>
               <div className="flex items-center gap-1">
-                {uploadManager.completedCount > 0 && !uploadManager.isProcessing && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => { e.stopPropagation(); uploadManager.clearCompleted(); }}
-                    data-testid="button-clear-uploads"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!uploadManager.isProcessing) {
+                      uploadManager.clearCompleted();
+                    }
+                    setIsUploadPanelVisible(false);
+                  }}
+                  data-testid="button-close-uploads"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
                 {isUploadPanelOpen ? (
                   <ChevronDown className="w-4 h-4 text-muted-foreground" />
                 ) : (
@@ -843,7 +1041,89 @@ export default function Dashboard() {
 
             {isUploadPanelOpen && (
               <div className="max-h-64 overflow-y-auto">
-                {uploadManager.uploads.map((item) => (
+                {Array.from(uploadManager.folderGroups.folders.entries()).map(([folderName, items]) => {
+                  const folderCompleted = items.filter((i) => i.status === "completed").length;
+                  const folderFailed = items.filter((i) => i.status === "failed").length;
+                  const folderTotal = items.length;
+                  const folderProgress = folderTotal > 0
+                    ? Math.round(items.reduce((s, i) => s + i.progress, 0) / folderTotal)
+                    : 0;
+                  const folderCancelled = items.filter((i) => i.status === "cancelled").length;
+                  const allDone = folderCompleted + folderFailed + folderCancelled === folderTotal;
+                  const currentFile = items.find((i) => i.status === "uploading");
+                  const currentFileName = currentFile
+                    ? (currentFile.relativePath || currentFile.file.name).split("/").pop()
+                    : null;
+                  const failedItems = items.filter((i) => i.status === "failed");
+
+                  return (
+                    <div
+                      key={folderName}
+                      className="px-4 py-2 border-b border-border/50 last:border-b-0"
+                      data-testid={`upload-folder-${folderName}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Folder className="w-4 h-4 text-blue-500 shrink-0" />
+                          <span className="text-sm font-medium truncate">{folderName}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {folderCompleted}/{folderTotal}
+                          </span>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-1">
+                          {allDone && folderFailed === 0 && (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          )}
+                          {allDone && folderFailed > 0 && (
+                            <XCircle className="w-4 h-4 text-destructive" />
+                          )}
+                          {!allDone && (
+                            <span className="text-xs text-muted-foreground">{folderProgress}%</span>
+                          )}
+                        </div>
+                      </div>
+                      {!allDone && (
+                        <Progress value={folderProgress} className="h-1.5 mt-1.5" data-testid={`progress-folder-${folderName}`} />
+                      )}
+                      {currentFileName && (
+                        <div className="overflow-hidden mt-1">
+                          <p
+                            className="text-xs text-muted-foreground whitespace-nowrap animate-marquee"
+                            data-testid={`upload-current-file-${folderName}`}
+                          >
+                            {currentFileName}
+                          </p>
+                        </div>
+                      )}
+                      {failedItems.length > 0 && (
+                        <div className="mt-1.5 space-y-1" data-testid={`upload-folder-failures-${folderName}`}>
+                          <p className="text-xs text-destructive font-medium">{failedItems.length} failed:</p>
+                          {failedItems.map((fi) => {
+                            const fileName = (fi.relativePath || fi.file.name).split("/").pop();
+                            return (
+                              <div key={fi.id} className="flex items-center justify-between gap-2 pl-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs truncate" data-testid={`upload-failed-name-${fi.id}`}>{fileName}</p>
+                                  <p className="text-xs text-destructive/80 truncate">{fi.error || "Unknown error"}</p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => uploadManager.retryUpload(fi.id, currentPath)}
+                                  data-testid={`button-retry-${fi.id}`}
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {uploadManager.folderGroups.standalone.map((item) => (
                   <div
                     key={item.id}
                     className="flex items-center gap-3 px-4 py-2 border-b border-border/50 last:border-b-0"
@@ -851,7 +1131,7 @@ export default function Dashboard() {
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm truncate" data-testid={`upload-name-${item.id}`}>
-                        {item.relativePath || item.file.name}
+                        {item.file.name}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-muted-foreground">{formatFileSize(item.file.size)}</span>
