@@ -47,7 +47,6 @@ import {
   Ban,
   CreditCard,
   AlertTriangle,
-  FlaskConical,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { S3Object } from "@shared/schema";
@@ -110,30 +109,6 @@ export default function Dashboard() {
   });
 
   const [billingLoading, setBillingLoading] = useState(false);
-  const [testBillingLoading, setTestBillingLoading] = useState(false);
-
-  const handleTestBilling = useCallback(async () => {
-    setTestBillingLoading(true);
-    try {
-      const res = await apiRequest("POST", "/api/stripe/test-billing");
-      const data = await res.json();
-      toast({
-        title: "Test billing completed",
-        description: `Simulated 20GB usage. Billed ${data.billableGB}GB overage = $${data.estimatedCostDollars.toFixed(2)}. Invoice created on Stripe.`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/stripe/payment-status"] });
-    } catch (err: any) {
-      const msg = err?.message || "Test billing failed";
-      toast({
-        variant: "destructive",
-        title: "Test billing failed",
-        description: msg,
-      });
-    } finally {
-      setTestBillingLoading(false);
-    }
-  }, [toast]);
-
   const handleAddPaymentMethod = useCallback(async () => {
     setBillingLoading(true);
     try {
@@ -534,23 +509,6 @@ export default function Dashboard() {
               Add Payment Method
             </Button>
           )}
-        </div>
-
-        <div className="px-4 py-2 border-t border-border/50">
-          <Button
-            variant="outline"
-            className="w-full justify-start gap-2 border-dashed text-orange-600 dark:text-orange-400 border-orange-300 dark:border-orange-600"
-            onClick={handleTestBilling}
-            disabled={testBillingLoading}
-            data-testid="button-test-billing"
-          >
-            {testBillingLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FlaskConical className="w-4 h-4" />
-            )}
-            Test Billing (20GB)
-          </Button>
         </div>
 
         {storageStats && (

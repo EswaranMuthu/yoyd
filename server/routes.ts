@@ -663,65 +663,6 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/stripe/test-billing", isAuthenticated, async (req, res) => {
-    try {
-      const userId = req.authUser!.id;
-      const dbUser = await authStorage.getUserById(userId);
-      if (!dbUser) return res.status(404).json({ message: "User not found" });
-
-      let custId = dbUser.stripeCustomerId;
-      if (!custId) {
-        custId = await createStripeCustomer(dbUser.email, dbUser.username);
-        await authStorage.updateStripeCustomerId(dbUser.id, custId);
-        logger.routes.info("Test billing: created Stripe customer", { customerId: custId, username: dbUser.username });
-      }
-
-      await setDefaultPaymentMethod(custId);
-
-      const testBytes = 20 * 1024 * 1024 * 1024; // 20 GB
-      await db.update(users)
-        .set({ monthlyConsumedBytes: testBytes, updatedAt: new Date() })
-        .where(eq(users.id, userId));
-
-      logger.routes.info("Test billing: set storage to 20GB", { user: dbUser.username, bytes: testBytes });
-
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth() + 1;
-
-      const existing = await db.select({ id: billingRecords.id })
-        .from(billingRecords)
-        .where(and(
-          eq(billingRecords.userId, userId),
-          eq(billingRecords.year, year),
-          eq(billingRecords.month, month),
-        ))
-        .limit(1);
-
-      if (existing.length > 0) {
-        await db.delete(billingRecords).where(eq(billingRecords.id, existing[0].id));
-        logger.routes.info("Test billing: cleared existing billing record", { user: dbUser.username, year, month });
-      }
-
-      const { runMonthlyBilling } = await import("./billing");
-      const result = await runMonthlyBilling(year, month);
-
-      logger.routes.info("Test billing completed", { result });
-
-      res.json({
-        message: "Test billing completed",
-        simulatedUsageGB: 20,
-        freeGB: 10,
-        billableGB: 10,
-        estimatedCostDollars: 1.00,
-        billingResult: result,
-      });
-    } catch (error: any) {
-      logger.routes.error("Test billing failed", error);
-      res.status(500).json({ message: error.message || "Test billing failed" });
-    }
-  });
-
   app.post("/api/stripe/webhook", async (req, res) => {
     try {
       const signature = req.headers["stripe-signature"] as string;
