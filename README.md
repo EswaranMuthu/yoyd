@@ -24,8 +24,8 @@
 |  Node.js + TypeScript (ESM)                  |
 |                                              |
 |  +----------+  +-----------+  +----------+   |
-|  | Auth     |  | S3 Object |  | Storage  |   |
-|  | Service  |  | Service   |  | Layer    |   |
+|  | Auth     |  | S3 Object |  | Billing  |   |
+|  | Service  |  | Service   |  | Service  |   |
 |  +----+-----+  +-----+-----+  +----+-----+   |
 |       |              |             |          |
 +-------+--------------+-------------+---------+
@@ -34,6 +34,11 @@
    | JWT     |    | AWS S3  |   | PostgreSQL  |
    | Tokens  |    | Bucket  |   | Database    |
    +---------+    +---------+   +-------------+
+                                      |
+                                +-----+------+
+                                |  Stripe    |
+                                |  Payments  |
+                                +------------+
 ```
 
 ---
@@ -66,8 +71,16 @@
 - Sync S3 bucket contents with database metadata for fast browsing
 - Image preview with keyboard navigation
 
+### Usage-Based Billing (Stripe)
+- **Free Tier**: 10 GB/month of uploads included at no cost
+- **Overage**: $0.10/GB (rounded up) billed automatically at month's end
+- **Billing Model**: Cumulative consumption — tracks total bytes uploaded per month (uploads + re-uploads, not reduced by deletions)
+- **Payment Flow**: Dashboard shows a banner when a user exceeds the free tier without a card on file; users add a card via Stripe Checkout (setup mode); invoices are auto-charged going forward
+- **Monthly Billing Job**: Fully idempotent — processes all users, creates billing records, charges via Stripe invoices, and resets counters
+- **Stripe Customer Creation**: On-demand — customers are created in Stripe only when adding a payment method or when billing is triggered, not at signup
+
 ### Secrets Vault
-- All service credentials (AWS, Google) stored in a `secrets_vault` database table — not environment variables
+- All service credentials (AWS, Google, Stripe) stored in a `secrets_vault` database table — not environment variables
 - In-memory cache with 5-minute TTL for performance
 - Credentials loaded lazily on first API call
 
@@ -93,7 +106,7 @@
 
 **Pages:**
 - **Landing Page** (`/`) — Hero section with registration/login popup dialog
-- **Dashboard** (`/dashboard`) — S3 file browser with upload, download, folder creation, delete, and image preview
+- **Dashboard** (`/dashboard`) — S3 file browser with upload, download, folder creation, delete, image preview, and billing status banner
 - **404 Page** — Not found fallback
 
 **Key Frontend Modules:**
@@ -123,10 +136,12 @@
 | `auth/jwt.ts`           | JWT generation, password hashing (bcrypt)                |
 | `auth/middleware.ts`    | Bearer token verification middleware                     |
 | `auth/storage.ts`       | User and refresh token database operations               |
-| `routes.ts`             | S3 object API endpoints (including multipart upload)     |
-| `s3.ts`                 | AWS S3 SDK interactions (list, upload, download, multipart) |
+| `routes.ts`             | S3 object API endpoints (including multipart) + Stripe billing endpoints |
+| `s3.ts`                 | AWS S3 SDK operations (list, upload, download, multipart) |
 | `storage.ts`            | S3 object metadata database operations                   |
 | `vault.ts`              | Secrets vault — loads credentials from database           |
+| `billing.ts`            | Monthly billing job — cost calculation, billing record creation, Stripe invoice charging |
+| `stripe.ts`             | Stripe API wrapper — customer creation, checkout sessions, invoices, webhooks (vault-based secrets) |
 | `helpers.ts`            | Shared utility functions (sanitization, path helpers, multipart math) |
 
 ---
@@ -172,6 +187,12 @@ Frontend (React)                         Backend (Express)
 |  - Create folders |                   |  - Sync with S3   |
 |  - Delete items   | <---------------- |  - CRUD metadata  |
 |                   |   JSON responses  |                   |
+|                   |                   |                   |
+| Billing Banner    |  POST/GET         | Billing Service   |
+|  - Payment status | ----------------> |  - Stripe Checkout|
+|  - Add card flow  |                   |  - Payment status |
+|                   | <---------------- |  - Webhooks       |
+|                   |                   |                   |
 +-------------------+                   +-------------------+
          |                                       |
          |                              +--------+--------+
@@ -180,6 +201,11 @@ Frontend (React)                         Backend (Express)
          +-- localStorage           | JWT  | | AWS  | | Postgres |
              (tokens)               | Keys | | S3   | | Database |
                                     +------+ +------+ +----------+
+                                                           |
+                                                     +-----+------+
+                                                     |  Stripe    |
+                                                     |  Payments  |
+                                                     +------------+
 ```
 
 ### Authentication Flow
@@ -208,6 +234,19 @@ Frontend (React)                         Backend (Express)
 4. Files >100MB: multipart upload initiated, parts uploaded in parallel (3 concurrent) via presigned URLs
 5. Per-file and overall progress displayed in upload panel
 6. Users can cancel or retry individual uploads
+
+### Billing Flow
+
+1. Uploads increment user's `monthly_consumed_bytes` counter (cumulative, not reduced by deletions)
+2. Dashboard checks payment status — if user exceeds 10 GB free tier and has no card, a billing banner is shown
+3. User clicks "Add Payment Method" — redirected to Stripe Checkout (setup mode) to add a card
+4. Stripe webhook confirms card saved, sets default payment method on the Stripe customer
+5. At month's end, `runMonthlyBilling()` processes all users:
+   - Calculates billable bytes (consumed - 10 GB free)
+   - Creates a `billing_records` entry
+   - If billable amount > $0 and customer has a card, creates and charges a Stripe invoice
+   - Resets `monthly_consumed_bytes` to 0 for the next cycle
+6. Billing job is fully idempotent — safe to re-run without duplicate charges
 
 ---
 
@@ -247,23 +286,59 @@ Frontend (React)                         Backend (Express)
 | POST   | `/api/objects/multipart/complete`    | Complete multipart upload             | Yes           |
 | POST   | `/api/objects/multipart/abort`       | Abort multipart upload                | Yes           |
 
+### Billing (Stripe)
+
+| Method | Endpoint                          | Description                                            | Auth Required |
+|--------|-----------------------------------|--------------------------------------------------------|---------------|
+| POST   | `/api/stripe/checkout-session`    | Create Stripe Checkout session for adding payment method | Yes          |
+| GET    | `/api/stripe/payment-status`      | Get billing status (hasCard, exceededFreeTier, usage)   | Yes          |
+| POST   | `/api/stripe/webhook`             | Handle Stripe webhook events                            | No (verified via signature) |
+
 ---
 
 ## Database Schema
 
 ### `users`
-| Column           | Type      | Description                 |
-|------------------|-----------|-----------------------------|
-| id               | varchar   | UUID primary key            |
-| username         | varchar   | Unique username (3-30 chars)|
-| email            | varchar   | Unique email address        |
-| password         | varchar   | Bcrypt hashed password (nullable for Google-only accounts) |
-| google_id        | varchar   | Google account ID (nullable)|
-| first_name       | varchar   | Optional first name         |
-| last_name        | varchar   | Optional last name          |
-| profile_image_url| varchar   | Optional profile image      |
-| created_at       | timestamp | Account creation date       |
-| updated_at       | timestamp | Last update date            |
+| Column                | Type      | Description                 |
+|-----------------------|-----------|-----------------------------|
+| id                    | varchar   | UUID primary key            |
+| username              | varchar   | Unique username (3-30 chars)|
+| email                 | varchar   | Unique email address        |
+| password              | varchar   | Bcrypt hashed password (nullable for Google-only accounts) |
+| google_id             | varchar   | Google account ID (nullable)|
+| first_name            | varchar   | Optional first name         |
+| last_name             | varchar   | Optional last name          |
+| profile_image_url     | varchar   | Optional profile image      |
+| total_storage_bytes   | bigint    | Current total storage used (bytes) |
+| monthly_consumed_bytes| bigint    | Cumulative bytes uploaded this billing cycle |
+| stripe_customer_id    | varchar   | Stripe customer ID (nullable, created on-demand) |
+| created_at            | timestamp | Account creation date       |
+| updated_at            | timestamp | Last update date            |
+
+### `billing_records`
+| Column            | Type      | Description                               |
+|-------------------|-----------|-------------------------------------------|
+| id                | serial    | Auto-increment primary key                |
+| user_id           | varchar   | Foreign key to users                      |
+| year              | integer   | Billing year                              |
+| month             | integer   | Billing month                             |
+| consumed_bytes    | bigint    | Total bytes consumed that month           |
+| free_bytes        | bigint    | Free tier bytes (10 GB)                   |
+| billable_bytes    | bigint    | Bytes exceeding free tier                 |
+| cost_cents        | integer   | Cost in cents ($0.10/GB rounded up)       |
+| stripe_invoice_id | varchar   | Stripe invoice ID (nullable)              |
+| created_at        | timestamp | Record creation date                      |
+
+*Unique constraint on (user_id, year, month) — ensures idempotent billing.*
+
+### `stripe_events`
+| Column            | Type      | Description                               |
+|-------------------|-----------|-------------------------------------------|
+| id                | serial    | Auto-increment primary key                |
+| event_id          | varchar   | Unique Stripe event ID                    |
+| event_type        | varchar   | Event type (e.g., invoice.paid)           |
+| payload           | text      | Full event JSON payload                   |
+| created_at        | timestamp | Record creation date                      |
 
 ### `refresh_tokens`
 | Column     | Type      | Description                       |
@@ -298,13 +373,15 @@ Frontend (React)                         Backend (Express)
 | created_at | timestamp | Record creation date              |
 | updated_at | timestamp | Record update date                |
 
+**Vault keys stored:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+
 ---
 
 ## Testing
 
 - **Framework**: Vitest
-- **Test Suites**: 10
-- **Total Tests**: 173
+- **Test Suites**: 13
+- **Total Tests**: 217
 - **Run**: `npx vitest run`
 
 | Test File                                        | Tests | Coverage Area                                      |
@@ -313,19 +390,25 @@ Frontend (React)                         Backend (Express)
 | `server/auth/middleware.test.ts`                 | 6     | Auth middleware (token verification)               |
 | `server/s3.test.ts`                              | 10    | S3 helper functions                                |
 | `server/routes.test.ts`                          | 34    | Route validation, user prefix helpers, multipart security |
-| `server/vault.test.ts`                           | 5     | Secrets vault loading and caching                  |
+| `server/vault.test.ts`                           | 10    | Secrets vault loading, caching, Stripe key scenarios |
+| `server/billing.test.ts`                         | 12    | Billing cost calculation, free tier, overage pricing |
+| `server/stripe.test.ts`                          | 14    | Stripe vault integration, API call validation, error paths |
 | `shared/routes.test.ts`                          | 19    | API route schema validation (including multipart)  |
+| `shared/models/auth.test.ts`                     | 20    | Database schema validation for all tables          |
 | `client/src/lib/auth.test.ts`                    | 13    | Frontend auth utilities                            |
 | `client/src/lib/auth-utils.test.ts`              | 4     | Auth utility functions                             |
 | `client/src/pages/Dashboard.test.ts`             | 12    | Dashboard file utilities                           |
 | `client/src/hooks/use-upload-manager.test.ts`    | 55    | Upload manager utilities, multipart logic, progress tracking |
 
-Tests import and exercise actual production code from `server/helpers.ts` and `use-upload-manager.ts` — no duplicated logic. Coverage includes:
+Tests import and exercise actual production code from `server/helpers.ts`, `server/billing.ts`, `server/stripe.ts`, and `use-upload-manager.ts` — no duplicated logic. Coverage includes:
 - Path traversal detection and filename sanitization
 - Multipart part calculation, batching, and progress
 - User prefix enforcement for multi-tenancy
 - JWT token generation and password hashing
 - API schema validation with Zod
+- Billing cost calculation (free tier thresholds, per-GB rounding, edge cases)
+- Stripe vault-based initialization and API call verification
+- Database schema column/type validation for all tables
 
 ---
 
@@ -344,7 +427,7 @@ yoyd/
 |       +-- lib/                   # Utilities (auth, API client)
 |       +-- pages/                 # Page components
 |       |   +-- Landing.tsx        # Landing page with hero
-|       |   +-- Dashboard.tsx      # S3 file browser
+|       |   +-- Dashboard.tsx      # S3 file browser + billing banner
 |       |   +-- Dashboard.test.ts  # Dashboard tests
 |       +-- App.tsx                # Root component with routing
 |       +-- main.tsx               # Entry point
@@ -356,18 +439,23 @@ yoyd/
 |   |   +-- middleware.test.ts     # Middleware tests
 |   |   +-- routes.ts              # Auth API endpoints
 |   |   +-- storage.ts             # User/token DB operations
+|   +-- billing.ts                 # Monthly billing job (cost calc, Stripe invoices)
+|   +-- billing.test.ts            # Billing tests (12)
 |   +-- db.ts                      # Database connection (Drizzle)
 |   +-- helpers.ts                 # Shared utility functions (sanitization, math, prefixes)
 |   +-- index.ts                   # Express server entry point
-|   +-- routes.ts                  # S3 API endpoints (including multipart)
+|   +-- routes.ts                  # S3 API + Stripe billing endpoints
 |   +-- routes.test.ts             # Route + helper tests (34)
 |   +-- s3.ts                      # AWS S3 SDK operations (including multipart)
 |   +-- s3.test.ts                 # S3 helper tests
 |   +-- storage.ts                 # S3 metadata DB operations
+|   +-- stripe.ts                  # Stripe API wrapper (vault-based secrets)
+|   +-- stripe.test.ts             # Stripe integration tests (14)
 |   +-- vault.ts                   # Secrets vault (DB-backed credential store)
-|   +-- vault.test.ts              # Vault tests
+|   +-- vault.test.ts              # Vault tests (10)
 +-- shared/                        # Shared types and schemas
-|   +-- models/auth.ts             # Drizzle schema (users, tokens, secrets_vault)
+|   +-- models/auth.ts             # Drizzle schema (users, tokens, secrets_vault, billing_records, stripe_events)
+|   +-- models/auth.test.ts        # Schema validation tests (20)
 |   +-- routes.ts                  # API route type definitions (Zod)
 |   +-- routes.test.ts             # Schema validation tests (19)
 |   +-- schema.ts                  # Combined schema exports
@@ -386,9 +474,10 @@ yoyd/
 | `DATABASE_URL`        | PostgreSQL connection string          | Yes      |
 | `SESSION_SECRET`      | Secret key for JWT signing            | Yes      |
 
-Service credentials (AWS, Google) are stored in the `secrets_vault` database table, not as environment variables:
+Service credentials are stored in the `secrets_vault` database table, not as environment variables:
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 
 ---
 
@@ -413,8 +502,8 @@ Service credentials (AWS, Google) are stored in the `secrets_vault` database tab
 - `AWS_ACCESS_KEY_ID` — IAM credentials with ECR + ECS permissions
 - `AWS_SECRET_ACCESS_KEY` — IAM secret key
 - `AWS_REGION` — AWS region
-- `ECS_CLUSTER_NAME` — ECS cluster name
-- `ECS_SERVICE_NAME` — ECS service name
+- `ECS_CLUSTER_NAME` — ECS cluster name (e.g., `yoyd-cluster`)
+- `ECS_SERVICE_NAME` — ECS service name (e.g., `yoyd-service`)
 
 **Pre-deploy**: Run `npx drizzle-kit push` against production DB before first deploy.
 
@@ -425,7 +514,7 @@ Service credentials (AWS, Google) are stored in the `secrets_vault` database tab
 1. Set `DATABASE_URL` and `SESSION_SECRET` environment variables
 2. Install dependencies: `npm install`
 3. Push database schema: `npm run db:push`
-4. Add service credentials to `secrets_vault` table (AWS and Google keys)
+4. Add service credentials to `secrets_vault` table (AWS, Google, and Stripe keys)
 5. Start development server: `npm run dev`
 6. Open the app at `http://localhost:5000`
 7. Run tests: `npx vitest run`
@@ -443,6 +532,7 @@ Service credentials (AWS, Google) are stored in the `secrets_vault` database tab
 | Database   | PostgreSQL, Drizzle ORM                             |
 | Auth       | JWT (access + refresh tokens), bcrypt, Google OAuth  |
 | Storage    | AWS S3 (presigned URLs, multipart upload)            |
+| Billing    | Stripe (usage-based, 10 GB free, $0.10/GB overage)  |
 | Validation | Zod schemas                                         |
-| Testing    | Vitest (173 tests across 10 suites)                 |
+| Testing    | Vitest (217 tests across 13 suites)                 |
 | Deployment | Docker, AWS ECR, AWS ECS, GitHub Actions            |
