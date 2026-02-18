@@ -53,8 +53,22 @@ export const billingRecords = pgTable("billing_records", {
   unique("billing_records_user_month_unique").on(table.userId, table.year, table.month),
 ]);
 
+export const stripeEvents = pgTable("stripe_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  stripeEventId: varchar("stripe_event_id").unique().notNull(),
+  eventType: varchar("event_type").notNull(),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  invoiceId: varchar("invoice_id"),
+  amountCents: integer("amount_cents"),
+  status: varchar("status"),
+  payload: text("payload"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type RefreshToken = typeof refreshTokens.$inferSelect;
 export type SecretVault = typeof secretsVault.$inferSelect;
 export type BillingRecord = typeof billingRecords.$inferSelect;
+export type StripeEvent = typeof stripeEvents.$inferSelect;

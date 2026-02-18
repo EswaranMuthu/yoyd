@@ -25,7 +25,7 @@ import {
 } from "./s3";
 import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject, sanitizeFileName, isValidFileName, hasPathTraversal, cleanETag } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
-import { users, billingRecords } from "@shared/schema";
+import { users, billingRecords, stripeEvents } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 import { authStorage } from "./auth/storage";
@@ -723,26 +723,56 @@ export async function registerRoutes(
       if (!signature) return res.status(400).json({ message: "Missing signature" });
 
       const event = constructWebhookEvent(req.rawBody as Buffer, signature);
+      const obj = event.data.object as any;
+
+      const stripeCustomerId = obj.customer || null;
+      let invoiceId: string | null = null;
+      let amountCents: number | null = null;
+      let status: string | null = null;
+
+      let matchedUser = null;
+      if (stripeCustomerId) {
+        const found = await db.select({ id: users.id }).from(users).where(eq(users.stripeCustomerId, stripeCustomerId)).limit(1);
+        if (found.length > 0) matchedUser = found[0].id;
+      }
 
       switch (event.type) {
         case "checkout.session.completed": {
-          const session = event.data.object as any;
-          logger.routes.info("Stripe checkout completed", { customerId: session.customer });
+          status = "completed";
+          logger.routes.info("Stripe checkout completed", { customerId: stripeCustomerId });
           break;
         }
         case "invoice.paid": {
-          const invoice = event.data.object as any;
-          logger.routes.info("Stripe invoice paid", { invoiceId: invoice.id, customerId: invoice.customer });
+          invoiceId = obj.id;
+          amountCents = obj.amount_paid;
+          status = "paid";
+          logger.routes.info("Stripe invoice paid", { invoiceId, customerId: stripeCustomerId, amountCents });
           break;
         }
         case "invoice.payment_failed": {
-          const invoice = event.data.object as any;
-          logger.routes.warn("Stripe invoice payment failed", { invoiceId: invoice.id, customerId: invoice.customer });
+          invoiceId = obj.id;
+          amountCents = obj.amount_due;
+          status = "failed";
+          logger.routes.warn("Stripe invoice payment failed", { invoiceId, customerId: stripeCustomerId });
           break;
         }
         default:
+          status = obj.status || null;
           logger.routes.debug("Unhandled Stripe event", { type: event.type });
       }
+
+      await db.insert(stripeEvents).values({
+        stripeEventId: event.id,
+        eventType: event.type,
+        stripeCustomerId,
+        userId: matchedUser,
+        invoiceId,
+        amountCents,
+        status,
+        payload: JSON.stringify(event.data.object),
+      }).onConflictDoNothing();
+
+      logger.routes.info("Stripe event logged", { eventId: event.id, type: event.type });
 
       res.json({ received: true });
     } catch (error: any) {
