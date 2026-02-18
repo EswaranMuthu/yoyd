@@ -13,6 +13,7 @@ export interface IAuthStorage {
   updateUserStorageBytes(username: string, totalBytes: number): Promise<void>;
   addConsumedBytes(username: string, bytes: number): Promise<void>;
   resetMonthlyConsumedBytes(username: string): Promise<void>;
+  updateStripeCustomerId(userId: string, stripeCustomerId: string): Promise<void>;
   saveRefreshToken(userId: string, token: string, expiresAt: Date): Promise<void>;
   getRefreshToken(token: string): Promise<{ userId: string; expiresAt: Date } | null>;
   deleteRefreshToken(token: string): Promise<void>;
@@ -122,6 +123,13 @@ export const authStorage: IAuthStorage = {
       .update(users)
       .set({ monthlyConsumedBytes: 0, updatedAt: new Date() })
       .where(eq(users.username, username));
+  },
+
+  async updateStripeCustomerId(userId: string, stripeCustomerId: string): Promise<void> {
+    await db
+      .update(users)
+      .set({ stripeCustomerId, updatedAt: new Date() })
+      .where(eq(users.id, userId));
   },
 
   async deleteUserRefreshTokens(userId: string): Promise<void> {

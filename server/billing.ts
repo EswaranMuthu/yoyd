@@ -1,7 +1,8 @@
 import { db } from "./db";
 import { users, billingRecords } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from "./logger";
+import { createInvoiceForUsage } from "./stripe";
 
 const FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024; // 10 GB
 const COST_PER_GB_CENTS = 10; // $0.10 per GB
@@ -32,16 +33,19 @@ export function calculateStorageCost(monthlyConsumedBytes: number): {
 export async function runMonthlyBilling(year: number, month: number): Promise<{
   processed: number;
   skipped: number;
+  charged: number;
   totalCostCents: number;
 }> {
   const allUsers = await db.select({
     id: users.id,
     username: users.username,
     monthlyConsumedBytes: users.monthlyConsumedBytes,
+    stripeCustomerId: users.stripeCustomerId,
   }).from(users);
 
   let processed = 0;
   let skipped = 0;
+  let charged = 0;
   let totalCostCents = 0;
 
   for (const user of allUsers) {
@@ -63,6 +67,22 @@ export async function runMonthlyBilling(year: number, month: number): Promise<{
     const consumed = user.monthlyConsumedBytes ?? 0;
     const billing = calculateStorageCost(consumed);
 
+    let stripeInvoiceId: string | null = null;
+
+    if (billing.costCents > 0 && user.stripeCustomerId) {
+      try {
+        stripeInvoiceId = await createInvoiceForUsage(
+          user.stripeCustomerId,
+          billing.costCents,
+          year,
+          month,
+        );
+        charged++;
+      } catch (err: any) {
+        logger.routes.error("Failed to charge Stripe", err, { user: user.username, year, month });
+      }
+    }
+
     await db.transaction(async (tx) => {
       await tx.insert(billingRecords).values({
         userId: user.id,
@@ -71,6 +91,7 @@ export async function runMonthlyBilling(year: number, month: number): Promise<{
         freeBytes: Math.min(consumed, FREE_TIER_BYTES),
         billableBytes: Math.max(0, consumed - FREE_TIER_BYTES),
         costCents: billing.costCents,
+        stripeInvoiceId,
       });
 
       await tx.update(users)
@@ -87,9 +108,10 @@ export async function runMonthlyBilling(year: number, month: number): Promise<{
       month,
       consumedGB: billing.consumedGB,
       costCents: billing.costCents,
+      stripeInvoiceId,
     });
   }
 
-  logger.routes.info("Monthly billing completed", { year, month, processed, skipped, totalCostCents });
-  return { processed, skipped, totalCostCents };
+  logger.routes.info("Monthly billing completed", { year, month, processed, skipped, charged, totalCostCents });
+  return { processed, skipped, charged, totalCostCents };
 }

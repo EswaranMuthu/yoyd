@@ -13,6 +13,7 @@ export const users = pgTable("users", {
   authProvider: varchar("auth_provider").default("local"),
   googleSub: varchar("google_sub").unique(),
   createdAt: timestamp("created_at").defaultNow(),
+  stripeCustomerId: varchar("stripe_customer_id"),
   totalStorageBytes: bigint("total_storage_bytes", { mode: "number" }).default(0),
   monthlyConsumedBytes: bigint("monthly_consumed_bytes", { mode: "number" }).default(0),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -46,6 +47,7 @@ export const billingRecords = pgTable("billing_records", {
   freeBytes: bigint("free_bytes", { mode: "number" }).notNull().default(0),
   billableBytes: bigint("billable_bytes", { mode: "number" }).notNull().default(0),
   costCents: integer("cost_cents").notNull().default(0),
+  stripeInvoiceId: varchar("stripe_invoice_id"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   unique("billing_records_user_month_unique").on(table.userId, table.year, table.month),

@@ -26,6 +26,7 @@ import {
 import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject, sanitizeFileName, isValidFileName, hasPathTraversal, cleanETag } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
 import { authStorage } from "./auth/storage";
+import { createStripeCustomer, createCheckoutSession, hasPaymentMethod, constructWebhookEvent } from "./stripe";
 
 async function recalcUserStorage(username: string) {
   try {
@@ -601,6 +602,95 @@ export async function registerRoutes(
       }
       logger.routes.error("Failed to abort multipart upload", error, { user: req.authUser?.username });
       res.status(500).json({ message: "Failed to abort multipart upload" });
+    }
+  });
+
+  // === STRIPE BILLING ROUTES ===
+
+  app.post("/api/stripe/checkout-session", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.authUser!;
+      const dbUser = await authStorage.getUserByUsername(user.username);
+      if (!dbUser) return res.status(404).json({ message: "User not found" });
+
+      let stripeCustomerId = dbUser.stripeCustomerId;
+      if (!stripeCustomerId) {
+        stripeCustomerId = await createStripeCustomer(dbUser.email, dbUser.username);
+        await authStorage.updateStripeCustomerId(dbUser.id, stripeCustomerId);
+      }
+
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const { sessionId, url } = await createCheckoutSession(
+        stripeCustomerId,
+        `${origin}/dashboard?payment=success`,
+        `${origin}/dashboard?payment=cancelled`,
+      );
+
+      res.json({ sessionId, url });
+    } catch (error: any) {
+      logger.routes.error("Failed to create checkout session", error);
+      res.status(500).json({ message: "Failed to create checkout session" });
+    }
+  });
+
+  app.get("/api/stripe/payment-status", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.authUser!;
+      const dbUser = await authStorage.getUserByUsername(user.username);
+      if (!dbUser) return res.status(404).json({ message: "User not found" });
+
+      const FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024;
+      const consumed = dbUser.monthlyConsumedBytes ?? 0;
+      const exceededFreeTier = consumed > FREE_TIER_BYTES;
+
+      let hasCard = false;
+      if (dbUser.stripeCustomerId) {
+        hasCard = await hasPaymentMethod(dbUser.stripeCustomerId);
+      }
+
+      res.json({
+        hasCard,
+        exceededFreeTier,
+        monthlyConsumedBytes: consumed,
+        needsPaymentMethod: exceededFreeTier && !hasCard,
+      });
+    } catch (error: any) {
+      logger.routes.error("Failed to check payment status", error);
+      res.status(500).json({ message: "Failed to check payment status" });
+    }
+  });
+
+  app.post("/api/stripe/webhook", async (req, res) => {
+    try {
+      const signature = req.headers["stripe-signature"] as string;
+      if (!signature) return res.status(400).json({ message: "Missing signature" });
+
+      const event = constructWebhookEvent(req.rawBody as Buffer, signature);
+
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = event.data.object as any;
+          logger.routes.info("Stripe checkout completed", { customerId: session.customer });
+          break;
+        }
+        case "invoice.paid": {
+          const invoice = event.data.object as any;
+          logger.routes.info("Stripe invoice paid", { invoiceId: invoice.id, customerId: invoice.customer });
+          break;
+        }
+        case "invoice.payment_failed": {
+          const invoice = event.data.object as any;
+          logger.routes.warn("Stripe invoice payment failed", { invoiceId: invoice.id, customerId: invoice.customer });
+          break;
+        }
+        default:
+          logger.routes.debug("Unhandled Stripe event", { type: event.type });
+      }
+
+      res.json({ received: true });
+    } catch (error: any) {
+      logger.routes.error("Stripe webhook error", error);
+      res.status(400).json({ message: "Webhook error" });
     }
   });
 
