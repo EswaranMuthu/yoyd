@@ -86,8 +86,8 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 
 ### Testing
 - **Framework**: Vitest
-- **Test Files**: 10 test suites, 173 tests
-- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation, secrets vault, multipart upload schemas, upload manager utilities
+- **Test Files**: 13 test suites, 217 tests
+- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation, secrets vault, multipart upload schemas, upload manager utilities, billing cost calculation, Stripe vault integration, database schema validation
 - **Run**: `npx vitest run`
 - **Key Test Files**:
   - `server/auth/jwt.test.ts` - Token generation, password hashing
@@ -100,12 +100,15 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
   - `client/src/pages/Dashboard.test.ts` - Dashboard file utilities
   - `shared/routes.test.ts` - Shared route schema validation
   - `client/src/hooks/use-upload-manager.test.ts` - Upload manager utilities, multipart logic, progress tracking
+  - `server/billing.test.ts` - Billing cost calculation, free tier, overage pricing
+  - `server/stripe.test.ts` - Stripe vault integration, API call validation, error paths
+  - `shared/models/auth.test.ts` - Database schema validation for all tables
 
 ### Usage-Based Billing (Stripe)
 - **Model**: Cumulative consumption — tracks total bytes uploaded per month (uploads + re-uploads, not reduced by deletions)
 - **Free Tier**: 10 GB/month free
 - **Overage**: $0.10/GB (rounded up) billed at end of month
-- **Stripe Integration**: `server/stripe.ts` — lazy-initialized Stripe client using `STRIPE_SECRET_KEY` from env
+- **Stripe Integration**: `server/stripe.ts` — lazy-initialized Stripe client using `STRIPE_SECRET_KEY` from secrets vault
 - **Billing Job**: `server/billing.ts` — `runMonthlyBilling(year, month)` processes all users, creates billing records, charges via Stripe invoices, resets counters; fully idempotent
 - **Payment Flow**: Dashboard shows banner when user exceeds free tier without a card → Stripe Checkout (setup mode) → card saved → invoices auto-charged
 - **API Endpoints**:
