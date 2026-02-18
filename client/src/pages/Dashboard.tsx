@@ -81,6 +81,8 @@ export default function Dashboard() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(false);
+  const [isUploadPanelVisible, setIsUploadPanelVisible] = useState(true);
+  const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -181,6 +183,32 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [previewImage, handlePrevImage, handleNextImage]);
 
+  const cancelledCount = useMemo(
+    () => uploadManager.uploads.filter((u) => u.status === "cancelled").length,
+    [uploadManager.uploads]
+  );
+
+  useEffect(() => {
+    if (autoDismissTimerRef.current) {
+      clearTimeout(autoDismissTimerRef.current);
+      autoDismissTimerRef.current = null;
+    }
+    const allSucceeded =
+      uploadManager.uploads.length > 0 &&
+      !uploadManager.isProcessing &&
+      uploadManager.failedCount === 0 &&
+      cancelledCount === 0 &&
+      uploadManager.completedCount === uploadManager.uploads.length;
+    if (allSucceeded) {
+      autoDismissTimerRef.current = setTimeout(() => {
+        uploadManager.clearCompleted();
+      }, 3000);
+    }
+    return () => {
+      if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
+    };
+  }, [uploadManager.uploads.length, uploadManager.isProcessing, uploadManager.failedCount, cancelledCount, uploadManager.completedCount, uploadManager.clearCompleted, uploadManager.uploads]);
+
   const handleDownloadFromPreview = useCallback(() => {
     if (previewImage) {
       window.open(previewImage.url, "_blank");
@@ -233,6 +261,7 @@ export default function Dashboard() {
     if (!files || files.length === 0) return;
     uploadManager.addFiles(Array.from(files), currentPath);
     setIsUploadPanelOpen(true);
+    setIsUploadPanelVisible(true);
     e.target.value = "";
   }, [currentPath, uploadManager]);
 
@@ -250,6 +279,7 @@ export default function Dashboard() {
     }
     uploadManager.addFiles(fileArray, currentPath, relativePaths);
     setIsUploadPanelOpen(true);
+    setIsUploadPanelVisible(true);
     e.target.value = "";
   }, [currentPath, uploadManager]);
 
@@ -338,6 +368,7 @@ export default function Dashboard() {
     if (allFiles.length > 0) {
       uploadManager.addFiles(allFiles, currentPath, relativePaths.size > 0 ? relativePaths : undefined);
       setIsUploadPanelOpen(true);
+      setIsUploadPanelVisible(true);
     }
   }, [currentPath, uploadManager, traverseFileTree]);
 
@@ -797,7 +828,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {uploadManager.uploads.length > 0 && (
+        {uploadManager.uploads.length > 0 && (isUploadPanelVisible || uploadManager.isProcessing) && (
           <div
             className="fixed bottom-4 right-4 z-30 w-96 max-w-[calc(100vw-2rem)] bg-card border border-border rounded-md shadow-lg"
             data-testid="upload-panel"
@@ -816,16 +847,20 @@ export default function Dashboard() {
                 </span>
               </div>
               <div className="flex items-center gap-1">
-                {uploadManager.completedCount > 0 && !uploadManager.isProcessing && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => { e.stopPropagation(); uploadManager.clearCompleted(); }}
-                    data-testid="button-clear-uploads"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!uploadManager.isProcessing) {
+                      uploadManager.clearCompleted();
+                    }
+                    setIsUploadPanelVisible(false);
+                  }}
+                  data-testid="button-close-uploads"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
                 {isUploadPanelOpen ? (
                   <ChevronDown className="w-4 h-4 text-muted-foreground" />
                 ) : (
@@ -843,7 +878,63 @@ export default function Dashboard() {
 
             {isUploadPanelOpen && (
               <div className="max-h-64 overflow-y-auto">
-                {uploadManager.uploads.map((item) => (
+                {Array.from(uploadManager.folderGroups.folders.entries()).map(([folderName, items]) => {
+                  const folderCompleted = items.filter((i) => i.status === "completed").length;
+                  const folderFailed = items.filter((i) => i.status === "failed").length;
+                  const folderTotal = items.length;
+                  const folderProgress = folderTotal > 0
+                    ? Math.round(items.reduce((s, i) => s + i.progress, 0) / folderTotal)
+                    : 0;
+                  const allDone = folderCompleted + folderFailed === folderTotal;
+                  const currentFile = items.find((i) => i.status === "uploading");
+                  const currentFileName = currentFile
+                    ? (currentFile.relativePath || currentFile.file.name).split("/").pop()
+                    : null;
+
+                  return (
+                    <div
+                      key={folderName}
+                      className="px-4 py-2 border-b border-border/50 last:border-b-0"
+                      data-testid={`upload-folder-${folderName}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Folder className="w-4 h-4 text-blue-500 shrink-0" />
+                          <span className="text-sm font-medium truncate">{folderName}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {folderCompleted}/{folderTotal}
+                          </span>
+                        </div>
+                        <div className="shrink-0">
+                          {allDone && folderFailed === 0 && (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          )}
+                          {allDone && folderFailed > 0 && (
+                            <XCircle className="w-4 h-4 text-destructive" />
+                          )}
+                          {!allDone && (
+                            <span className="text-xs text-muted-foreground">{folderProgress}%</span>
+                          )}
+                        </div>
+                      </div>
+                      {!allDone && (
+                        <Progress value={folderProgress} className="h-1.5 mt-1.5" data-testid={`progress-folder-${folderName}`} />
+                      )}
+                      {currentFileName && (
+                        <div className="overflow-hidden mt-1">
+                          <p
+                            className="text-xs text-muted-foreground whitespace-nowrap animate-marquee"
+                            data-testid={`upload-current-file-${folderName}`}
+                          >
+                            {currentFileName}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {uploadManager.folderGroups.standalone.map((item) => (
                   <div
                     key={item.id}
                     className="flex items-center gap-3 px-4 py-2 border-b border-border/50 last:border-b-0"
@@ -851,7 +942,7 @@ export default function Dashboard() {
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm truncate" data-testid={`upload-name-${item.id}`}>
-                        {item.relativePath || item.file.name}
+                        {item.file.name}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-muted-foreground">{formatFileSize(item.file.size)}</span>

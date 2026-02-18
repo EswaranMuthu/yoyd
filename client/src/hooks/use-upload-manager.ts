@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { fetchWithAuth, getAccessToken, isTokenExpiringSoon, refreshAccessToken } from "@/lib/auth";
@@ -300,6 +300,21 @@ export function useUploadManager() {
   const completedCount = uploads.filter((u) => u.status === "completed").length;
   const failedCount = uploads.filter((u) => u.status === "failed").length;
 
+  const folderGroups = useMemo(() => {
+    const groups = new Map<string, UploadItem[]>();
+    const standalone: UploadItem[] = [];
+    for (const item of uploads) {
+      if (item.relativePath && item.relativePath.includes("/")) {
+        const topFolder = item.relativePath.split("/")[0];
+        if (!groups.has(topFolder)) groups.set(topFolder, []);
+        groups.get(topFolder)!.push(item);
+      } else {
+        standalone.push(item);
+      }
+    }
+    return { folders: groups, standalone };
+  }, [uploads]);
+
   return {
     uploads,
     isProcessing,
@@ -311,5 +326,6 @@ export function useUploadManager() {
     activeCount,
     completedCount,
     failedCount,
+    folderGroups,
   };
 }
