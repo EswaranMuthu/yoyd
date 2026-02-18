@@ -85,6 +85,31 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/objects/storage-stats", isAuthenticated, async (req, res) => {
+    try {
+      const username = req.authUser!.username;
+      const userPrefix = getUserPrefix(username);
+      const clientPrefix = (req.query.prefix as string) || "";
+      const fullPrefix = clientPrefix ? addUserPrefix(clientPrefix, username) : userPrefix;
+
+      const [totalBytes, folderSizesMap] = await Promise.all([
+        storage.getTotalStorageForUser(userPrefix),
+        storage.getFolderSizes(userPrefix, fullPrefix),
+      ]);
+
+      const folderSizes: Record<string, number> = {};
+      for (const [key, size] of folderSizesMap) {
+        const stripped = stripUserPrefix(key, username);
+        folderSizes[stripped] = size;
+      }
+
+      res.json({ totalBytes, folderSizes });
+    } catch (error) {
+      logger.routes.error("Failed to get storage stats", error, { user: req.authUser?.username });
+      res.status(500).json({ message: "Failed to get storage stats" });
+    }
+  });
+
   app.post(api.objects.sync.path, isAuthenticated, async (req, res) => {
     try {
       const username = req.authUser!.username;

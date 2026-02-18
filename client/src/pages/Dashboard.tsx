@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects } from "@/hooks/use-s3";
+import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects, useStorageStats } from "@/hooks/use-s3";
 import { fetchWithAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
 import { formatFileSize, generateBreadcrumbs } from "@/lib/file-utils";
@@ -88,6 +88,7 @@ export default function Dashboard() {
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const { data: objects, isLoading } = useS3Objects(currentPath);
+  const { data: storageStats } = useStorageStats(currentPath);
   const syncMutation = useSyncObjects();
   const createFolderMutation = useCreateFolder();
   const getDownloadUrlMutation = useGetDownloadUrl();
@@ -431,6 +432,32 @@ export default function Dashboard() {
           </Button>
         </nav>
 
+        {storageStats && (
+          <div className="px-4 py-3 border-t border-border/50" data-testid="storage-usage">
+            <div className="flex items-center gap-3">
+              <div className="relative w-11 h-11 shrink-0">
+                <svg className="w-11 h-11 -rotate-90" viewBox="0 0 44 44">
+                  <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3" className="text-border" />
+                  <circle
+                    cx="22" cy="22" r="18" fill="none"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    className="text-primary"
+                    strokeDasharray={`${Math.min((storageStats.totalBytes / (5 * 1024 * 1024 * 1024)) * 113, 113)} 113`}
+                  />
+                </svg>
+                <HardDrive className="w-4 h-4 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold" data-testid="text-total-storage">
+                  {formatFileSize(storageStats.totalBytes)}
+                </p>
+                <p className="text-xs text-muted-foreground">total storage used</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="p-4 border-t border-border/50">
           <div className="flex items-center gap-3 mb-4 px-2">
             <Avatar className="w-8 h-8 border border-border">
@@ -676,7 +703,11 @@ export default function Dashboard() {
                         )}
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-muted-foreground">
-                        {object.isFolder ? "-" : formatFileSize(object.size)}
+                        {object.isFolder
+                          ? (storageStats?.folderSizes[object.key] != null
+                              ? formatFileSize(storageStats.folderSizes[object.key])
+                              : "-")
+                          : formatFileSize(object.size)}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell text-muted-foreground">
                         {object.lastModified 
