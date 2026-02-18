@@ -26,6 +26,40 @@ import {
 import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject, sanitizeFileName, isValidFileName, hasPathTraversal, cleanETag } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
 
+async function ensureIntermediateFolders(fullKey: string, username: string) {
+  const userPrefix = getUserPrefix(username);
+  const parts = fullKey.slice(userPrefix.length).split("/").filter(Boolean);
+  if (parts.length <= 1) return;
+
+  let accumulated = userPrefix;
+  for (let i = 0; i < parts.length - 1; i++) {
+    accumulated += parts[i] + "/";
+    const existing = await storage.getObjectByKey(accumulated);
+    if (!existing) {
+      logger.routes.debug("Auto-creating folder for upload", { user: username, folder: stripUserPrefix(accumulated, username) });
+      try {
+        await createS3Folder(accumulated);
+      } catch {
+      }
+      const folderParts = accumulated.split("/").filter(Boolean);
+      let parentKey: string | null = null;
+      if (folderParts.length > 1) {
+        parentKey = folderParts.slice(0, -1).join("/") + "/";
+      }
+      await storage.upsertObject({
+        key: accumulated,
+        name: parts[i],
+        parentKey,
+        isFolder: true,
+        size: null,
+        mimeType: null,
+        etag: null,
+        lastModified: new Date(),
+      });
+    }
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -223,6 +257,7 @@ export async function registerRoutes(
       const contentType = file.mimetype || "application/octet-stream";
 
       await uploadToS3(key, file.buffer, contentType);
+      await ensureIntermediateFolders(key, username);
 
       const strippedKey = stripUserPrefix(key, username);
       const parts = key.split("/").filter((p: string) => p);
@@ -265,6 +300,8 @@ export async function registerRoutes(
         logger.routes.warn("Confirm upload failed - object not found in S3", { user: username, key: fullKey });
         return res.status(400).json({ message: "Object not found in S3" });
       }
+
+      await ensureIntermediateFolders(fullKey, username);
 
       const parts = fullKey.split("/").filter((p) => p);
       const name = parts[parts.length - 1] || fullKey;
@@ -383,7 +420,7 @@ export async function registerRoutes(
     try {
       const username = req.authUser!.username;
       const input = api.objects.initiateMultipart.input.parse(req.body);
-      logger.routes.info("Multipart upload initiate", { user: username, fileName: input.fileName, mimeType: input.mimeType, fileSize: input.fileSize });
+      logger.routes.info("Multipart upload initiate", { user: username, fileName: input.fileName, mimeType: input.mimeType });
 
       const sanitizedName = sanitizeFileName(input.fileName);
       if (!isValidFileName(sanitizedName)) {
@@ -458,6 +495,7 @@ export async function registerRoutes(
 
       logger.routes.info("Completing multipart upload", { user: username, key: input.key, totalParts: input.parts.length });
       await completeS3Multipart(fullKey, input.uploadId, input.parts);
+      await ensureIntermediateFolders(fullKey, username);
 
       const metadata = await getObjectMetadata(fullKey);
       const parts = fullKey.split("/").filter((p) => p);
