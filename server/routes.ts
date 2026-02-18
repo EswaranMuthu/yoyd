@@ -668,7 +668,7 @@ export async function registerRoutes(
       const signature = req.headers["stripe-signature"] as string;
       if (!signature) return res.status(400).json({ message: "Missing signature" });
 
-      const event = constructWebhookEvent(req.rawBody as Buffer, signature);
+      const event = await constructWebhookEvent(req.rawBody as Buffer, signature);
       const obj = event.data.object as any;
 
       const stripeCustomerId = obj.customer || null;

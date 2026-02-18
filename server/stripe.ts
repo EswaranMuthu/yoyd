@@ -1,19 +1,21 @@
 import Stripe from "stripe";
 import { logger } from "./logger";
+import { getSecret } from "./vault";
 
 let stripeClient: Stripe | null = null;
 
-function getStripe(): Stripe {
+async function getStripe(): Promise<Stripe> {
   if (!stripeClient) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error("STRIPE_SECRET_KEY not configured");
+    const key = await getSecret("STRIPE_SECRET_KEY");
+    if (!key) throw new Error("STRIPE_SECRET_KEY not found in secrets vault");
     stripeClient = new Stripe(key, { apiVersion: "2025-01-27.acacia" as any });
+    logger.routes.info("Stripe client initialized from vault");
   }
   return stripeClient;
 }
 
 export async function createStripeCustomer(email: string, username: string): Promise<string> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const customer = await stripe.customers.create({
     email,
     metadata: { username },
@@ -27,7 +29,7 @@ export async function createCheckoutSession(
   successUrl: string,
   cancelUrl: string,
 ): Promise<{ sessionId: string; url: string }> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const session = await stripe.checkout.sessions.create({
     customer: stripeCustomerId,
     mode: "setup",
@@ -40,7 +42,7 @@ export async function createCheckoutSession(
 }
 
 export async function hasPaymentMethod(stripeCustomerId: string): Promise<boolean> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const methods = await stripe.paymentMethods.list({
     customer: stripeCustomerId,
     type: "card",
@@ -50,7 +52,7 @@ export async function hasPaymentMethod(stripeCustomerId: string): Promise<boolea
 }
 
 export async function setDefaultPaymentMethod(stripeCustomerId: string): Promise<void> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const methods = await stripe.paymentMethods.list({
     customer: stripeCustomerId,
     type: "card",
@@ -70,7 +72,7 @@ export async function createInvoiceForUsage(
   year: number,
   month: number,
 ): Promise<string> {
-  const stripe = getStripe();
+  const stripe = await getStripe();
 
   const invoice = await stripe.invoices.create({
     customer: stripeCustomerId,
@@ -102,9 +104,9 @@ export async function createInvoiceForUsage(
   return paid.id;
 }
 
-export function constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
-  const stripe = getStripe();
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) throw new Error("STRIPE_WEBHOOK_SECRET not configured");
+export async function constructWebhookEvent(payload: Buffer, signature: string): Promise<Stripe.Event> {
+  const stripe = await getStripe();
+  const secret = await getSecret("STRIPE_WEBHOOK_SECRET");
+  if (!secret) throw new Error("STRIPE_WEBHOOK_SECRET not found in secrets vault");
   return stripe.webhooks.constructEvent(payload, signature, secret);
 }
