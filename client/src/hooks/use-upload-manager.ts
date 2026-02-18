@@ -6,6 +6,7 @@ import { fetchWithAuth, getAccessToken, isTokenExpiringSoon, refreshAccessToken 
 export const MULTIPART_THRESHOLD = 100 * 1024 * 1024;
 export const PART_SIZE = 10 * 1024 * 1024;
 export const MAX_CONCURRENT_PARTS = 3;
+export const MAX_CONCURRENT_UPLOADS = 5;
 
 export type UploadStatus = "queued" | "uploading" | "completed" | "failed" | "cancelled";
 
@@ -158,75 +159,82 @@ export function useUploadManager() {
     [updateUpload]
   );
 
+  const processOneItem = useCallback(async (itemToProcess: UploadItem, currentPath: string) => {
+    const parentKey = itemToProcess.relativePath
+      ? (() => {
+          const parts = itemToProcess.relativePath.split("/");
+          if (parts.length > 1) {
+            const folderPath = parts.slice(0, -1).join("/") + "/";
+            return currentPath ? currentPath + folderPath : folderPath;
+          }
+          return currentPath;
+        })()
+      : currentPath;
+
+    try {
+      console.log("[upload] Starting upload:", itemToProcess.file.name, "parentKey:", parentKey, "size:", itemToProcess.file.size);
+      if (itemToProcess.file.size > MULTIPART_THRESHOLD) {
+        await uploadLargeFile(itemToProcess, parentKey);
+      } else {
+        await uploadSmallFile(itemToProcess, parentKey);
+      }
+      console.log("[upload] Completed:", itemToProcess.file.name);
+      updateUpload(itemToProcess.id, { status: "completed", progress: 100 });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Upload failed";
+      console.error("[upload] Failed:", itemToProcess.file.name, msg);
+
+      let currentItem: UploadItem | undefined;
+      setUploads((prev) => {
+        currentItem = prev.find((u) => u.id === itemToProcess.id);
+        return prev;
+      });
+      if (currentItem?.uploadId && currentItem?.key) {
+        try {
+          await apiRequest("POST", "/api/objects/multipart/abort", {
+            key: currentItem.key,
+            uploadId: currentItem.uploadId,
+          });
+        } catch {
+        }
+      }
+
+      if (msg === "Cancelled") {
+        updateUpload(itemToProcess.id, { status: "cancelled", error: msg });
+      } else {
+        updateUpload(itemToProcess.id, { status: "failed", error: msg });
+      }
+    }
+  }, [uploadSmallFile, uploadLargeFile, updateUpload]);
+
   const processQueue = useCallback(async (currentPath: string) => {
     if (processingRef.current) return;
     processingRef.current = true;
     setIsProcessing(true);
 
     try {
-      while (true) {
-        let nextItem: UploadItem | undefined;
-        setUploads((prev) => {
-          nextItem = prev.find((u) => u.status === "queued");
-          if (nextItem) {
-            return prev.map((u) =>
-              u.id === nextItem!.id ? { ...u, status: "uploading" as UploadStatus } : u
-            );
-          }
-          return prev;
-        });
-
-        await new Promise((r) => setTimeout(r, 0));
-
-        if (!nextItem) break;
-        const itemToProcess = nextItem;
-
-        const parentKey = itemToProcess.relativePath
-          ? (() => {
-              const parts = itemToProcess.relativePath.split("/");
-              if (parts.length > 1) {
-                const folderPath = parts.slice(0, -1).join("/") + "/";
-                return currentPath ? currentPath + folderPath : folderPath;
-              }
-              return currentPath;
-            })()
-          : currentPath;
-
-        try {
-          console.log("[upload] Starting upload:", itemToProcess.file.name, "parentKey:", parentKey, "size:", itemToProcess.file.size);
-          if (itemToProcess.file.size > MULTIPART_THRESHOLD) {
-            await uploadLargeFile(itemToProcess, parentKey);
-          } else {
-            await uploadSmallFile(itemToProcess, parentKey);
-          }
-          console.log("[upload] Completed:", itemToProcess.file.name);
-          updateUpload(itemToProcess.id, { status: "completed", progress: 100 });
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : "Upload failed";
-          console.error("[upload] Failed:", itemToProcess.file.name, msg);
-
-          let currentItem: UploadItem | undefined;
+      const runWorker = async () => {
+        while (true) {
+          let nextItem: UploadItem | undefined;
           setUploads((prev) => {
-            currentItem = prev.find((u) => u.id === itemToProcess.id);
+            nextItem = prev.find((u) => u.status === "queued");
+            if (nextItem) {
+              return prev.map((u) =>
+                u.id === nextItem!.id ? { ...u, status: "uploading" as UploadStatus } : u
+              );
+            }
             return prev;
           });
-          if (currentItem?.uploadId && currentItem?.key) {
-            try {
-              await apiRequest("POST", "/api/objects/multipart/abort", {
-                key: currentItem.key,
-                uploadId: currentItem.uploadId,
-              });
-            } catch {
-            }
-          }
 
-          if (msg === "Cancelled") {
-            updateUpload(itemToProcess.id, { status: "cancelled", error: msg });
-          } else {
-            updateUpload(itemToProcess.id, { status: "failed", error: msg });
-          }
+          await new Promise((r) => setTimeout(r, 0));
+
+          if (!nextItem) break;
+          await processOneItem(nextItem, currentPath);
         }
-      }
+      };
+
+      const workers = Array.from({ length: MAX_CONCURRENT_UPLOADS }, () => runWorker());
+      await Promise.all(workers);
     } finally {
       processingRef.current = false;
       setIsProcessing(false);
@@ -235,7 +243,7 @@ export function useUploadManager() {
           typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/objects"),
       });
     }
-  }, [uploadSmallFile, uploadLargeFile, updateUpload]);
+  }, [processOneItem]);
 
   const addFiles = useCallback(
     (files: File[], currentPath: string, relativePaths?: Map<File, string>) => {
