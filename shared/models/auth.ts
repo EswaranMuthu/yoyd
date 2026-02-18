@@ -14,6 +14,7 @@ export const users = pgTable("users", {
   googleSub: varchar("google_sub").unique(),
   createdAt: timestamp("created_at").defaultNow(),
   totalStorageBytes: bigint("total_storage_bytes", { mode: "number" }).default(0),
+  maxStorageBytes: bigint("max_storage_bytes", { mode: "number" }).default(0),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
