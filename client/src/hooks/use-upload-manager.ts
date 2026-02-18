@@ -3,9 +3,9 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { fetchWithAuth } from "@/lib/auth";
 
-const MULTIPART_THRESHOLD = 100 * 1024 * 1024;
-const PART_SIZE = 10 * 1024 * 1024;
-const MAX_CONCURRENT_PARTS = 3;
+export const MULTIPART_THRESHOLD = 100 * 1024 * 1024;
+export const PART_SIZE = 10 * 1024 * 1024;
+export const MAX_CONCURRENT_PARTS = 3;
 
 export type UploadStatus = "queued" | "uploading" | "completed" | "failed" | "cancelled";
 

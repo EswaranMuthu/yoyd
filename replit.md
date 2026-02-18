@@ -85,8 +85,8 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 
 ### Testing
 - **Framework**: Vitest
-- **Test Files**: 9 test suites, 94 tests
-- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation, secrets vault
+- **Test Files**: 10 test suites, 173 tests
+- **Coverage**: JWT utilities, S3 helpers, auth middleware, frontend auth/file utilities, API route validation, secrets vault, multipart upload schemas, upload manager utilities
 - **Run**: `npx vitest run`
 - **Key Test Files**:
   - `server/auth/jwt.test.ts` - Token generation, password hashing
@@ -98,6 +98,7 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
   - `client/src/lib/auth-utils.test.ts` - Auth utility functions
   - `client/src/pages/Dashboard.test.ts` - Dashboard file utilities
   - `shared/routes.test.ts` - Shared route schema validation
+  - `client/src/hooks/use-upload-manager.test.ts` - Upload manager utilities, multipart logic, progress tracking
 
 ## External Dependencies
 

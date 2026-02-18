@@ -22,7 +22,7 @@ import {
   completeMultipartUpload as completeS3Multipart,
   abortMultipartUpload as abortS3Multipart,
 } from "./s3";
-import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject } from "./helpers";
+import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject, sanitizeFileName, isValidFileName, hasPathTraversal, cleanETag } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
 
 export async function registerRoutes(
@@ -358,12 +358,12 @@ export async function registerRoutes(
       const username = req.authUser!.username;
       const input = api.objects.initiateMultipart.input.parse(req.body);
 
-      const sanitizedName = input.fileName.replace(/[\\]/g, "/").split("/").pop()?.replace(/\.\./g, "_") || "";
-      if (!sanitizedName || sanitizedName.startsWith(".")) {
+      const sanitizedName = sanitizeFileName(input.fileName);
+      if (!isValidFileName(sanitizedName)) {
         return res.status(400).json({ message: "Invalid file name" });
       }
 
-      if (input.parentKey && /\.\./.test(input.parentKey)) {
+      if (input.parentKey && hasPathTraversal(input.parentKey)) {
         return res.status(400).json({ message: "Invalid parent path" });
       }
 
