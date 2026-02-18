@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, varchar, bigint } from "drizzle-orm/pg-core";
 
 // User storage table.
 export const users = pgTable("users", {
@@ -13,6 +13,7 @@ export const users = pgTable("users", {
   authProvider: varchar("auth_provider").default("local"),
   googleSub: varchar("google_sub").unique(),
   createdAt: timestamp("created_at").defaultNow(),
+  totalStorageBytes: bigint("total_storage_bytes", { mode: "number" }).default(0),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

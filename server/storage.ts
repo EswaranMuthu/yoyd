@@ -117,9 +117,10 @@ export class DatabaseStorage implements IStorage {
 
     if (folders.length === 0) return new Map();
 
-    const conditions = folders.map(
-      (f) => sql`WHEN ${s3Objects.key} LIKE ${f.key + '%'} THEN ${f.key}`
+    const caseWhenParts = folders.map(
+      (f) => sql.raw(`WHEN key LIKE '${f.key.replace(/'/g, "''")}%' THEN '${f.key.replace(/'/g, "''")}'`)
     );
+    const caseExpr = sql`CASE ${sql.join(caseWhenParts, sql` `)} ELSE NULL END`;
 
     const likeConditions = folders.map(
       (f) => like(s3Objects.key, `${f.key}%`)
@@ -127,12 +128,12 @@ export class DatabaseStorage implements IStorage {
 
     const results = await db
       .select({
-        folder: sql<string>`CASE ${sql.join(conditions, sql` `)} ELSE NULL END`,
+        folder: caseExpr,
         total: sql<string>`COALESCE(SUM(${s3Objects.size}), 0)`,
       })
       .from(s3Objects)
       .where(and(or(...likeConditions), eq(s3Objects.isFolder, false)))
-      .groupBy(sql`CASE ${sql.join(conditions, sql` `)} ELSE NULL END`);
+      .groupBy(caseExpr);
 
     const sizeMap = new Map<string, number>();
     for (const f of folders) {

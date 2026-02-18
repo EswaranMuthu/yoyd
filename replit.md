@@ -37,7 +37,7 @@ The server handles API requests through Express middleware, with routes register
 - **Schema Location**: `shared/schema.ts`, `shared/models/auth.ts`
 - **Migrations**: Drizzle Kit with `db:push` command
 - **Tables**:
-  - `users`: User accounts (supports password and Google OAuth)
+  - `users`: User accounts (supports password and Google OAuth), includes `total_storage_bytes` (bigint) for billing-ready storage tracking
   - `refresh_tokens`: JWT refresh tokens with expiry and rotation
   - `s3_objects`: Cached metadata about S3 objects for efficient browsing
 

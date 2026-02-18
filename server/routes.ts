@@ -25,6 +25,18 @@ import {
 } from "./s3";
 import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject, sanitizeFileName, isValidFileName, hasPathTraversal, cleanETag } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
+import { authStorage } from "./auth/storage";
+
+async function recalcUserStorage(username: string) {
+  try {
+    const userPrefix = getUserPrefix(username);
+    const totalBytes = await storage.getTotalStorageForUser(userPrefix);
+    await authStorage.updateUserStorageBytes(username, totalBytes);
+    logger.routes.debug("Updated user storage", { user: username, totalBytes });
+  } catch (err: any) {
+    logger.routes.error("Failed to update user storage bytes", err, { user: username });
+  }
+}
 
 async function ensureIntermediateFolders(fullKey: string, username: string) {
   const userPrefix = getUserPrefix(username);
@@ -169,6 +181,7 @@ export async function registerRoutes(
       }
 
       logger.routes.info("Sync completed", { user: username, synced, deleted, s3_total: s3Objects.length, db_total: dbObjects.length });
+      recalcUserStorage(username).catch(() => {});
       res.json({ synced, deleted });
     } catch (error: any) {
       logger.routes.error("Sync failed", error, { user: req.authUser?.username });
@@ -305,6 +318,7 @@ export async function registerRoutes(
 
       const object = await storage.upsertObject(insertObj);
       logger.routes.info("File upload completed", { user: username, key: strippedKey, size_bytes: file.size });
+      recalcUserStorage(username).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       logger.routes.error("File upload failed", error, { user: req.authUser?.username });
@@ -348,6 +362,7 @@ export async function registerRoutes(
 
       const object = await storage.upsertObject(insertObj);
       logger.routes.debug("Upload confirmed", { user: username, key: input.key, size: metadata.size });
+      recalcUserStorage(username).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -428,6 +443,7 @@ export async function registerRoutes(
       }
 
       logger.routes.info("Delete completed", { user: username, deleted: uniqueKeys.length });
+      recalcUserStorage(username).catch(() => {});
       res.json({ deleted: uniqueKeys.length });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -543,6 +559,7 @@ export async function registerRoutes(
 
       const object = await storage.upsertObject(insertObj);
       logger.routes.info("Multipart upload completed", { user: username, key: input.key, size: metadata?.size });
+      recalcUserStorage(username).catch(() => {});
       res.json(stripPrefixFromObject(object, username));
     } catch (error) {
       if (error instanceof z.ZodError) {

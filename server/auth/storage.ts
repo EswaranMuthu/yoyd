@@ -10,6 +10,7 @@ export interface IAuthStorage {
   getUserByUsername(username: string): Promise<User | null>;
   getUserById(id: string): Promise<User | null>;
   getUserByGoogleSub(googleSub: string): Promise<User | null>;
+  updateUserStorageBytes(username: string, totalBytes: number): Promise<void>;
   saveRefreshToken(userId: string, token: string, expiresAt: Date): Promise<void>;
   getRefreshToken(token: string): Promise<{ userId: string; expiresAt: Date } | null>;
   deleteRefreshToken(token: string): Promise<void>;
@@ -94,6 +95,13 @@ export const authStorage: IAuthStorage = {
 
   async deleteRefreshToken(token: string): Promise<void> {
     await db.delete(refreshTokens).where(eq(refreshTokens.token, token));
+  },
+
+  async updateUserStorageBytes(username: string, totalBytes: number): Promise<void> {
+    await db
+      .update(users)
+      .set({ totalStorageBytes: totalBytes, updatedAt: new Date() })
+      .where(eq(users.username, username));
   },
 
   async deleteUserRefreshTokens(userId: string): Promise<void> {
