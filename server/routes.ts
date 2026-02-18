@@ -669,11 +669,14 @@ export async function registerRoutes(
       const dbUser = await authStorage.getUserById(userId);
       if (!dbUser) return res.status(404).json({ message: "User not found" });
 
-      if (!dbUser.stripeCustomerId) {
-        return res.status(400).json({ message: "No Stripe customer ID. Please add a payment method first." });
+      let custId = dbUser.stripeCustomerId;
+      if (!custId) {
+        custId = await createStripeCustomer(dbUser.email, dbUser.username);
+        await authStorage.updateStripeCustomerId(dbUser.id, custId);
+        logger.routes.info("Test billing: created Stripe customer", { customerId: custId, username: dbUser.username });
       }
 
-      await setDefaultPaymentMethod(dbUser.stripeCustomerId);
+      await setDefaultPaymentMethod(custId);
 
       const testBytes = 20 * 1024 * 1024 * 1024; // 20 GB
       await db.update(users)
