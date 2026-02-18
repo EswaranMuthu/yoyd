@@ -103,9 +103,19 @@ export default function Dashboard() {
     exceededFreeTier: boolean;
     monthlyConsumedBytes: number;
     needsPaymentMethod: boolean;
-  }>({
+  } | null>({
     queryKey: ["/api/stripe/payment-status"],
     staleTime: 60_000,
+    retry: false,
+    queryFn: async () => {
+      try {
+        const res = await fetchWithAuth("/api/stripe/payment-status");
+        if (!res.ok) return null;
+        return res.json();
+      } catch {
+        return null;
+      }
+    },
   });
 
   const [billingLoading, setBillingLoading] = useState(false);
