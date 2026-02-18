@@ -29,7 +29,7 @@ import { users, billingRecords, stripeEvents } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 import { authStorage } from "./auth/storage";
-import { createStripeCustomer, createCheckoutSession, hasPaymentMethod, constructWebhookEvent } from "./stripe";
+import { createStripeCustomer, createCheckoutSession, hasPaymentMethod, setDefaultPaymentMethod, constructWebhookEvent } from "./stripe";
 
 async function recalcUserStorage(username: string) {
   try {
@@ -673,6 +673,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "No Stripe customer ID. Please add a payment method first." });
       }
 
+      await setDefaultPaymentMethod(dbUser.stripeCustomerId);
+
       const testBytes = 20 * 1024 * 1024 * 1024; // 20 GB
       await db.update(users)
         .set({ monthlyConsumedBytes: testBytes, updatedAt: new Date() })
@@ -739,6 +741,13 @@ export async function registerRoutes(
       switch (event.type) {
         case "checkout.session.completed": {
           status = "completed";
+          if (stripeCustomerId) {
+            try {
+              await setDefaultPaymentMethod(stripeCustomerId);
+            } catch (e: any) {
+              logger.routes.error("Failed to set default payment method", e);
+            }
+          }
           logger.routes.info("Stripe checkout completed", { customerId: stripeCustomerId });
           break;
         }

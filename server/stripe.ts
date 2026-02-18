@@ -49,6 +49,21 @@ export async function hasPaymentMethod(stripeCustomerId: string): Promise<boolea
   return methods.data.length > 0;
 }
 
+export async function setDefaultPaymentMethod(stripeCustomerId: string): Promise<void> {
+  const stripe = getStripe();
+  const methods = await stripe.paymentMethods.list({
+    customer: stripeCustomerId,
+    type: "card",
+    limit: 1,
+  });
+  if (methods.data.length > 0) {
+    await stripe.customers.update(stripeCustomerId, {
+      invoice_settings: { default_payment_method: methods.data[0].id },
+    });
+    logger.routes.info("Default payment method set", { customerId: stripeCustomerId, paymentMethodId: methods.data[0].id });
+  }
+}
+
 export async function createInvoiceForUsage(
   stripeCustomerId: string,
   costCents: number,
