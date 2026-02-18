@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
-import { fetchWithAuth } from "@/lib/auth";
+import { fetchWithAuth, getAccessToken, isTokenExpiringSoon, refreshAccessToken } from "@/lib/auth";
 
 export const MULTIPART_THRESHOLD = 100 * 1024 * 1024;
 export const PART_SIZE = 10 * 1024 * 1024;
@@ -39,6 +39,10 @@ export function useUploadManager() {
       const controller = new AbortController();
       abortControllersRef.current.set(item.id, controller);
 
+      if (isTokenExpiringSoon()) {
+        await refreshAccessToken();
+      }
+
       const formData = new FormData();
       formData.append("file", item.file);
       if (parentKey) {
@@ -48,8 +52,9 @@ export function useUploadManager() {
       return new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/objects/upload");
+        xhr.timeout = 120000;
 
-        const token = localStorage.getItem("accessToken");
+        const token = getAccessToken();
         if (token) {
           xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         }
@@ -64,18 +69,21 @@ export function useUploadManager() {
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve();
+          } else if (xhr.status === 401) {
+            reject(new Error("Session expired. Please log in again."));
           } else {
             try {
               const err = JSON.parse(xhr.responseText);
               reject(new Error(err.message || "Upload failed"));
             } catch {
-              reject(new Error("Upload failed"));
+              reject(new Error(`Upload failed (${xhr.status})`));
             }
           }
         };
 
         xhr.onerror = () => reject(new Error("Network error"));
         xhr.onabort = () => reject(new Error("Cancelled"));
+        xhr.ontimeout = () => reject(new Error("Upload timed out"));
 
         controller.signal.addEventListener("abort", () => xhr.abort());
 
@@ -168,6 +176,8 @@ export function useUploadManager() {
           return prev;
         });
 
+        await new Promise((r) => setTimeout(r, 0));
+
         if (!nextItem) break;
         const itemToProcess = nextItem;
 
@@ -183,14 +193,17 @@ export function useUploadManager() {
           : currentPath;
 
         try {
+          console.log("[upload] Starting upload:", itemToProcess.file.name, "parentKey:", parentKey, "size:", itemToProcess.file.size);
           if (itemToProcess.file.size > MULTIPART_THRESHOLD) {
             await uploadLargeFile(itemToProcess, parentKey);
           } else {
             await uploadSmallFile(itemToProcess, parentKey);
           }
+          console.log("[upload] Completed:", itemToProcess.file.name);
           updateUpload(itemToProcess.id, { status: "completed", progress: 100 });
         } catch (error) {
           const msg = error instanceof Error ? error.message : "Upload failed";
+          console.error("[upload] Failed:", itemToProcess.file.name, msg);
 
           let currentItem: UploadItem | undefined;
           setUploads((prev) => {
