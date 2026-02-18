@@ -665,7 +665,7 @@ export async function registerRoutes(
 
   app.post("/api/stripe/test-billing", isAuthenticated, async (req, res) => {
     try {
-      const userId = req.userId!;
+      const userId = req.authUser!.id;
       const dbUser = await authStorage.getUserById(userId);
       if (!dbUser) return res.status(404).json({ message: "User not found" });
 
