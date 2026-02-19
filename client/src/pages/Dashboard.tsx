@@ -1,8 +1,9 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects, useStorageStats } from "@/hooks/use-s3";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatFileSize, generateBreadcrumbs } from "@/lib/file-utils";
+import { useMutation } from "@tanstack/react-query";
 import { useUploadManager, type UploadItem } from "@/hooks/use-upload-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +44,9 @@ import {
   ChevronUp,
   Ban,
   User,
+  Share2,
+  Copy,
+  Check,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
@@ -83,6 +87,10 @@ export default function Dashboard() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(false);
   const [isUploadPanelVisible, setIsUploadPanelVisible] = useState(true);
+  const [shareTarget, setShareTarget] = useState<S3Object | null>(null);
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareResult, setShareResult] = useState<{ shareLink: string; emailSent: boolean } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,6 +103,25 @@ export default function Dashboard() {
   const getDownloadUrlMutation = useGetDownloadUrl();
   const deleteMutation = useDeleteObjects();
   const uploadManager = useUploadManager();
+
+  const shareMutation = useMutation({
+    mutationFn: async (data: { objectKey: string; objectName: string; recipientEmail: string }) => {
+      const res = await apiRequest("POST", "/api/shares", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setShareResult({ shareLink: data.shareLink, emailSent: data.emailSent });
+      toast({
+        title: "File shared",
+        description: data.emailSent
+          ? `Share link sent to ${data.recipientEmail}`
+          : "Share link created (email delivery may be delayed)",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to share", description: error.message, variant: "destructive" });
+    },
+  });
 
   const breadcrumbs = generateBreadcrumbs(currentPath);
 
@@ -705,18 +732,33 @@ export default function Dashboard() {
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {!object.isFolder && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleFileClick(object)}
-                            data-testid={`button-action-${object.id}`}
-                          >
-                            {isImageFile(object) ? (
-                              <Eye className="w-4 h-4" />
-                            ) : (
-                              <Download className="w-4 h-4" />
-                            )}
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleFileClick(object)}
+                              data-testid={`button-action-${object.id}`}
+                            >
+                              {isImageFile(object) ? (
+                                <Eye className="w-4 h-4" />
+                              ) : (
+                                <Download className="w-4 h-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setShareTarget(object);
+                                setShareEmail("");
+                                setShareResult(null);
+                                setLinkCopied(false);
+                              }}
+                              data-testid={`button-share-${object.id}`}
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
@@ -748,6 +790,93 @@ export default function Dashboard() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={!!shareTarget} onOpenChange={(open) => { if (!open) { setShareTarget(null); setShareResult(null); } }}>
+          <DialogContent className="sm:max-w-md" data-testid="share-dialog">
+            <DialogHeader>
+              <DialogTitle>Share File</DialogTitle>
+              <DialogDescription>
+                Share "{shareTarget?.name}" with someone via email. They'll get a download link that expires in 7 days.
+              </DialogDescription>
+            </DialogHeader>
+            {!shareResult ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="share-email">Recipient email</label>
+                  <Input
+                    id="share-email"
+                    type="email"
+                    placeholder="name@example.com"
+                    value={shareEmail}
+                    onChange={(e) => setShareEmail(e.target.value)}
+                    data-testid="input-share-email"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShareTarget(null)}
+                    data-testid="button-share-cancel"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (!shareTarget || !shareEmail) return;
+                      shareMutation.mutate({
+                        objectKey: shareTarget.key,
+                        objectName: shareTarget.name,
+                        recipientEmail: shareEmail,
+                      });
+                    }}
+                    disabled={!shareEmail || shareMutation.isPending}
+                    data-testid="button-share-send"
+                  >
+                    {shareMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Share
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                  <Input
+                    readOnly
+                    value={shareResult.shareLink}
+                    className="text-sm"
+                    data-testid="input-share-link"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      navigator.clipboard.writeText(shareResult.shareLink);
+                      setLinkCopied(true);
+                      setTimeout(() => setLinkCopied(false), 2000);
+                    }}
+                    data-testid="button-copy-link"
+                  >
+                    {linkCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  </Button>
+                </div>
+                {shareResult.emailSent ? (
+                  <p className="text-sm text-muted-foreground" data-testid="text-share-status">
+                    An email with the download link has been sent to {shareEmail}.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground" data-testid="text-share-status">
+                    Share link created. Email notification could not be sent - share the link directly.
+                  </p>
+                )}
+                <DialogFooter>
+                  <Button onClick={() => { setShareTarget(null); setShareResult(null); }} data-testid="button-share-done">
+                    Done
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={!!previewImage} onOpenChange={(open) => { if (!open) setPreviewImage(null); }}>
           <DialogContent

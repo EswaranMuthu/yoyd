@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchWithAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -22,8 +22,12 @@ import {
   Mail,
   Shield,
   ArrowLeft,
+  Share2,
+  XCircle,
+  FileText,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { format } from "date-fns";
 
 export default function Profile() {
   const { user, logout } = useAuth();
@@ -49,6 +53,41 @@ export default function Profile() {
       } catch {
         return null;
       }
+    },
+  });
+
+  interface ShareItem {
+    id: string;
+    objectName: string;
+    recipientEmail: string;
+    token: string;
+    expiresAt: string;
+    createdAt: string;
+    revokedAt: string | null;
+    isExpired: boolean;
+    isRevoked: boolean;
+  }
+
+  const { data: shares, isLoading: sharesLoading } = useQuery<ShareItem[]>({
+    queryKey: ["/api/shares"],
+    queryFn: async () => {
+      const res = await fetchWithAuth("/api/shares");
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: async (shareId: string) => {
+      const res = await apiRequest("POST", `/api/shares/${shareId}/revoke`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shares"] });
+      toast({ title: "Share revoked", description: "The share link is no longer active." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to revoke", description: error.message, variant: "destructive" });
     },
   });
 
@@ -356,6 +395,86 @@ export default function Profile() {
                   <p className="text-sm text-muted-foreground">total storage used</p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Share2 className="w-5 h-5" />
+                Shared by Me
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {sharesLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : !shares || shares.length === 0 ? (
+                <div className="text-center py-6" data-testid="text-no-shares">
+                  <Share2 className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                  <p className="text-sm text-muted-foreground">No files shared yet</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Share files from your Storage Browser using the share button
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3" data-testid="shares-list">
+                  {shares.map((share) => {
+                    const isActive = !share.isRevoked && !share.isExpired;
+                    return (
+                      <div
+                        key={share.id}
+                        className="flex items-center gap-3 p-3 rounded-md border border-border/50"
+                        data-testid={`share-item-${share.id}`}
+                      >
+                        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
+                          <FileText className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" data-testid={`text-share-name-${share.id}`}>
+                            {share.objectName}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            Shared with {share.recipientEmail}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {format(new Date(share.createdAt), "MMM d, yyyy")}
+                            {" - "}
+                            Expires {format(new Date(share.expiresAt), "MMM d, yyyy")}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {share.isRevoked ? (
+                            <Badge variant="secondary" data-testid={`badge-share-status-${share.id}`}>
+                              Revoked
+                            </Badge>
+                          ) : share.isExpired ? (
+                            <Badge variant="secondary" data-testid={`badge-share-status-${share.id}`}>
+                              Expired
+                            </Badge>
+                          ) : (
+                            <>
+                              <Badge variant="default" data-testid={`badge-share-status-${share.id}`}>
+                                Active
+                              </Badge>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => revokeMutation.mutate(share.id)}
+                                disabled={revokeMutation.isPending}
+                                data-testid={`button-revoke-${share.id}`}
+                              >
+                                <XCircle className="w-4 h-4 text-destructive" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

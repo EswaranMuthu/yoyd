@@ -9,6 +9,7 @@ import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import Landing from "@/pages/Landing";
 import Profile from "@/pages/Profile";
+import ShareDownload from "@/pages/ShareDownload";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -95,6 +96,9 @@ function Router() {
       </Route>
       <Route path="/profile">
         <ProtectedRoute component={Profile} />
+      </Route>
+      <Route path="/share/:token">
+        {(params) => <ShareDownload />}
       </Route>
       <Route component={NotFound} />
     </Switch>

@@ -26,7 +26,7 @@ import {
 import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject, sanitizeFileName, isValidFileName, hasPathTraversal, cleanETag } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
 import { users, billingRecords, stripeEvents, fileShares } from "@shared/schema";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import { authStorage } from "./auth/storage";
 import { createStripeCustomer, createCheckoutSession, hasPaymentMethod, setDefaultPaymentMethod, constructWebhookEvent } from "./stripe";
@@ -746,20 +746,20 @@ export async function registerRoutes(
 
   app.post("/api/shares", isAuthenticated, async (req, res) => {
     try {
-      const user = (req as any).user;
+      const authUser = req.authUser!;
       const parsed = shareSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
       }
       const { objectKey, objectName, recipientEmail } = parsed.data;
 
-      const fullKey = addUserPrefix(objectKey, user.username);
+      const fullKey = addUserPrefix(objectKey, authUser.username);
 
       const token = crypto.randomBytes(32).toString("hex");
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
       const [share] = await db.insert(fileShares).values({
-        ownerUserId: user.userId,
+        ownerUserId: authUser.id,
         objectKey: fullKey,
         objectName,
         recipientEmail,
@@ -771,10 +771,10 @@ export async function registerRoutes(
       const host = req.headers["x-forwarded-host"] || req.headers.host;
       const shareLink = `${protocol}://${host}/share/${token}`;
 
-      const ownerName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username;
+      const ownerName = [authUser.firstName, authUser.lastName].filter(Boolean).join(" ") || authUser.username;
       const emailSent = await sendShareEmail(recipientEmail, shareLink, objectName, ownerName);
 
-      logger.routes.info("File shared", { user: user.username, file: objectName, to: recipientEmail, emailSent });
+      logger.routes.info("File shared", { user: authUser.username, file: objectName, to: recipientEmail, emailSent });
 
       res.json({
         id: share.id,
@@ -794,14 +794,14 @@ export async function registerRoutes(
 
   app.get("/api/shares", isAuthenticated, async (req, res) => {
     try {
-      const user = (req as any).user;
+      const authUser = req.authUser!;
       const shares = await db.select().from(fileShares)
-        .where(eq(fileShares.ownerUserId, user.userId))
+        .where(eq(fileShares.ownerUserId, authUser.id))
         .orderBy(desc(fileShares.createdAt));
 
       const result = shares.map(s => ({
         ...s,
-        objectKey: stripUserPrefix(s.objectKey, user.username),
+        objectKey: stripUserPrefix(s.objectKey, authUser.username),
         isExpired: new Date(s.expiresAt) < new Date(),
         isRevoked: !!s.revokedAt,
       }));
@@ -815,11 +815,11 @@ export async function registerRoutes(
 
   app.post("/api/shares/:id/revoke", isAuthenticated, async (req, res) => {
     try {
-      const user = (req as any).user;
+      const authUser = req.authUser!;
       const shareId = req.params.id;
 
       const [existing] = await db.select().from(fileShares)
-        .where(and(eq(fileShares.id, shareId), eq(fileShares.ownerUserId, user.userId)));
+        .where(sql`${fileShares.id} = ${shareId} AND ${fileShares.ownerUserId} = ${authUser.id}`);
 
       if (!existing) {
         return res.status(404).json({ message: "Share not found" });
@@ -830,11 +830,11 @@ export async function registerRoutes(
 
       const [updated] = await db.update(fileShares)
         .set({ revokedAt: new Date() })
-        .where(eq(fileShares.id, shareId))
+        .where(sql`${fileShares.id} = ${shareId}`)
         .returning();
 
-      logger.routes.info("Share revoked", { shareId, user: user.username });
-      res.json({ ...updated, objectKey: stripUserPrefix(updated.objectKey, user.username), isRevoked: true });
+      logger.routes.info("Share revoked", { shareId, user: authUser.username });
+      res.json({ ...updated, objectKey: stripUserPrefix(updated.objectKey, authUser.username), isRevoked: true });
     } catch (error: any) {
       logger.routes.error("Failed to revoke share", error);
       res.status(500).json({ message: "Failed to revoke share" });
