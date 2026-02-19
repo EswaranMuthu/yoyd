@@ -1,9 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects, useStorageStats } from "@/hooks/use-s3";
-import { fetchWithAuth } from "@/lib/auth";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { formatFileSize, generateBreadcrumbs } from "@/lib/file-utils";
 import { useUploadManager, type UploadItem } from "@/hooks/use-upload-manager";
 import { Button } from "@/components/ui/button";
@@ -14,7 +12,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
@@ -45,10 +42,10 @@ import {
   ChevronDown,
   ChevronUp,
   Ban,
-  CreditCard,
-  AlertTriangle,
+  User,
 } from "lucide-react";
 import { format } from "date-fns";
+import { useLocation } from "wouter";
 import type { S3Object } from "@shared/schema";
 
 function getFileIcon(object: S3Object) {
@@ -74,6 +71,7 @@ function getFileIcon(object: S3Object) {
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   
   const [currentPath, setCurrentPath] = useState<string>("");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
@@ -97,63 +95,6 @@ export default function Dashboard() {
   const getDownloadUrlMutation = useGetDownloadUrl();
   const deleteMutation = useDeleteObjects();
   const uploadManager = useUploadManager();
-
-  const { data: paymentStatus } = useQuery<{
-    hasCard: boolean;
-    exceededFreeTier: boolean;
-    monthlyConsumedBytes: number;
-    needsPaymentMethod: boolean;
-  } | null>({
-    queryKey: ["/api/stripe/payment-status"],
-    staleTime: 60_000,
-    retry: false,
-    queryFn: async () => {
-      try {
-        const res = await fetchWithAuth("/api/stripe/payment-status");
-        if (!res.ok) return null;
-        return res.json();
-      } catch {
-        return null;
-      }
-    },
-  });
-
-  const [billingLoading, setBillingLoading] = useState(false);
-  const handleAddPaymentMethod = useCallback(async () => {
-    setBillingLoading(true);
-    try {
-      const res = await apiRequest("POST", "/api/stripe/checkout-session");
-      const { url } = await res.json();
-      window.location.href = url;
-    } catch {
-      toast({
-        variant: "destructive",
-        title: "Payment setup failed",
-        description: "Could not open the payment setup page. Please try again.",
-      });
-      setBillingLoading(false);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const payment = params.get("payment");
-    if (payment === "success") {
-      toast({
-        title: "Payment method added",
-        description: "Your card has been saved. You're all set!",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/stripe/payment-status"] });
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (payment === "cancelled") {
-      toast({
-        variant: "destructive",
-        title: "Payment setup cancelled",
-        description: "You can add a payment method anytime from the dashboard.",
-      });
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, [toast]);
 
   const breadcrumbs = generateBreadcrumbs(currentPath);
 
@@ -490,53 +431,16 @@ export default function Dashboard() {
             <HardDrive className="w-4 h-4" />
             Storage Browser
           </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-3"
+            onClick={() => navigate("/profile")}
+            data-testid="nav-profile"
+          >
+            <User className="w-4 h-4" />
+            Profile
+          </Button>
         </nav>
-
-        <div className="px-4 py-3 border-t border-border/50" data-testid="billing-sidebar">
-          {paymentStatus?.hasCard ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 px-2 py-1">
-                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium">Card on file</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatFileSize(paymentStatus.monthlyConsumedBytes ?? 0)} used this month
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start gap-2 text-xs text-muted-foreground"
-                onClick={handleAddPaymentMethod}
-                disabled={billingLoading}
-                data-testid="button-sidebar-update-payment"
-              >
-                {billingLoading ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <CreditCard className="w-3 h-3" />
-                )}
-                Update Card
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2"
-              onClick={handleAddPaymentMethod}
-              disabled={billingLoading}
-              data-testid="button-sidebar-add-payment"
-            >
-              {billingLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <CreditCard className="w-4 h-4" />
-              )}
-              Add Payment Method
-            </Button>
-          )}
-        </div>
 
         {storageStats && (
           <div className="px-4 py-3 border-t border-border/50" data-testid="storage-usage">
@@ -565,7 +469,11 @@ export default function Dashboard() {
         )}
 
         <div className="p-4 border-t border-border/50">
-          <div className="flex items-center gap-3 mb-4 px-2">
+          <button
+            className="flex items-center gap-3 mb-4 px-2 w-full text-left rounded-md hover-elevate cursor-pointer"
+            onClick={() => navigate("/profile")}
+            data-testid="button-avatar-profile"
+          >
             <Avatar className="w-8 h-8 border border-border">
               <AvatarFallback className="bg-primary/10 text-primary text-xs">
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
@@ -575,7 +483,7 @@ export default function Dashboard() {
               <p className="text-sm font-medium truncate" data-testid="text-username">{user?.firstName} {user?.lastName}</p>
               <p className="text-xs text-muted-foreground truncate" data-testid="text-email">{user?.email}</p>
             </div>
-          </div>
+          </button>
           <Button variant="outline" className="w-full justify-start gap-2" onClick={() => logout()} data-testid="button-logout">
             <LogOut className="w-4 h-4" />
             Sign Out
@@ -630,57 +538,6 @@ export default function Dashboard() {
             ))}
           </div>
         </header>
-
-        {paymentStatus?.needsPaymentMethod && (
-          <Card className="mb-4 border-yellow-500/50 dark:border-yellow-500/30" data-testid="billing-banner">
-            <CardContent className="flex items-center gap-4 py-4">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-yellow-500/10 shrink-0">
-                <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium" data-testid="text-billing-title">Payment method needed</p>
-                <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-billing-desc">
-                  You've used {formatFileSize(paymentStatus.monthlyConsumedBytes)} this month (10 GB free).
-                  Add a payment method so we can bill any overages at $0.10/GB.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                onClick={handleAddPaymentMethod}
-                disabled={billingLoading}
-                data-testid="button-add-payment"
-              >
-                {billingLoading ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <CreditCard className="w-4 h-4 mr-2" />
-                )}
-                Add Card
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {paymentStatus?.exceededFreeTier && paymentStatus?.hasCard && (
-          <Card className="mb-4 border-green-500/50 dark:border-green-500/30" data-testid="billing-ok-banner">
-            <CardContent className="flex items-center gap-4 py-4">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-green-500/10 shrink-0">
-                <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium" data-testid="text-billing-ok-title">Payment method on file</p>
-                <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-billing-ok-desc">
-                  You've used {formatFileSize(paymentStatus.monthlyConsumedBytes)} this month. 
-                  Overages beyond 10 GB will be billed at $0.10/GB at the end of the billing cycle.
-                </p>
-              </div>
-              <Badge variant="secondary" data-testid="badge-card-on-file">
-                <CreditCard className="w-3 h-3 mr-1" />
-                Card on file
-              </Badge>
-            </CardContent>
-          </Card>
-        )}
 
         <Card>
           <CardHeader className="pb-3">

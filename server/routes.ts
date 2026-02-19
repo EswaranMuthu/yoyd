@@ -625,8 +625,8 @@ export async function registerRoutes(
       const origin = `${req.protocol}://${req.get("host")}`;
       const { sessionId, url } = await createCheckoutSession(
         stripeCustomerId,
-        `${origin}/dashboard?payment=success`,
-        `${origin}/dashboard?payment=cancelled`,
+        `${origin}/profile?payment=success`,
+        `${origin}/profile?payment=cancelled`,
       );
 
       res.json({ sessionId, url });
