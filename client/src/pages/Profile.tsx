@@ -118,7 +118,7 @@ export default function Profile() {
             data-testid="nav-profile"
           >
             <User className="w-4 h-4" />
-            Profile
+            {user?.firstName || "Profile"}
           </Button>
         </nav>
 
