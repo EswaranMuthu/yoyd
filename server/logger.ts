@@ -47,4 +47,5 @@ export const logger = {
   routes: createTaggedLogger("routes"),
   storage: createTaggedLogger("storage"),
   server: createTaggedLogger("server"),
+  email: createTaggedLogger("email"),
 };
