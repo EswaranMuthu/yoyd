@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Cloud, Shield, FolderOpen, Loader2, ArrowRight, Sparkles, Camera, Image, Lock, User, Mail, Check, Zap, HardDrive } from "lucide-react";
+import { Cloud, Shield, FolderOpen, Loader2, ArrowRight, Sparkles, Camera, Image, Lock, User, Mail, Check, Zap, HardDrive, Share2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -279,7 +279,7 @@ export default function Landing() {
             <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
           </button>
 
-          <div className="grid sm:grid-cols-3 gap-4 sm:gap-5 mt-12 sm:mt-20 max-w-4xl mx-auto">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mt-12 sm:mt-20 max-w-5xl mx-auto">
             <FeatureCard
               icon={<Cloud className="w-6 h-6" />}
               gradient="from-violet-500 to-indigo-600"
@@ -297,6 +297,12 @@ export default function Landing() {
               gradient="from-amber-500 to-orange-600"
               title="Full Control"
               description="Upload, download, create folders, and delete files all from one interface."
+            />
+            <FeatureCard
+              icon={<Share2 className="w-6 h-6" />}
+              gradient="from-cyan-500 to-blue-600"
+              title="Share Securely"
+              description="Share any file with a secure link. Set expiration dates and revoke access anytime."
             />
           </div>
         </div>
