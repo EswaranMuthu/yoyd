@@ -192,7 +192,15 @@ export default function Landing() {
               <img src="/favicon.png" alt="goyoyd" className="w-9 h-9 rounded-md shadow-lg shadow-violet-500/30" />
               <span className="text-xl font-bold font-display tracking-tight text-foreground">goyoyd</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+                className="text-muted-foreground hover:text-foreground"
+                data-testid="button-nav-pricing"
+              >
+                Pricing
+              </Button>
               <Button
                 variant="ghost"
                 onClick={openLogin}
@@ -259,6 +267,18 @@ export default function Landing() {
             </Button>
           </div>
 
+          <button
+            onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+            className="mt-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer mx-auto"
+            data-testid="button-hero-pricing-teaser"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>5 GB free every month</span>
+            <span className="text-border">·</span>
+            <span>then just $0.10/GB</span>
+            <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+          </button>
+
           <div className="grid sm:grid-cols-3 gap-4 sm:gap-5 mt-12 sm:mt-20 max-w-4xl mx-auto">
             <FeatureCard
               icon={<Cloud className="w-6 h-6" />}
@@ -282,7 +302,7 @@ export default function Landing() {
         </div>
       </div>
 
-      <div className="relative py-16 sm:py-24 px-4">
+      <div id="pricing" className="relative py-16 sm:py-24 px-4 scroll-mt-20">
         <div className="absolute inset-0 -z-10 overflow-hidden">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-violet-400/10 via-fuchsia-400/10 to-amber-400/10 rounded-full blur-3xl" />
         </div>
