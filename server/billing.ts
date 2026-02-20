@@ -4,7 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { createInvoiceForUsage } from "./stripe";
 
-const FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024; // 10 GB
+const FREE_TIER_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB
 const COST_PER_GB_CENTS = 10; // $0.10 per GB
 
 export function calculateStorageCost(monthlyConsumedBytes: number): {

@@ -106,7 +106,7 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 
 ### Usage-Based Billing (Stripe)
 - **Model**: Cumulative consumption — tracks total bytes uploaded per month (uploads + re-uploads, not reduced by deletions)
-- **Free Tier**: 10 GB/month free
+- **Free Tier**: 5 GB/month free
 - **Overage**: $0.10/GB (rounded up) billed at end of month
 - **Stripe Integration**: `server/stripe.ts` — lazy-initialized Stripe client using `STRIPE_SECRET_KEY` from secrets vault
 - **Billing Job**: `server/billing.ts` — `runMonthlyBilling(year, month)` processes all users, creates billing records, charges via Stripe invoices, resets counters; fully idempotent

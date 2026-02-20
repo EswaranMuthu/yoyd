@@ -305,7 +305,7 @@ export default function Profile() {
                     <p className="text-xs text-muted-foreground" data-testid="text-payment-desc">
                       {paymentStatus?.hasCard
                         ? "Your payment method is saved and ready for billing."
-                        : "No payment method added. 10 GB/month is free."}
+                        : "No payment method added. 5 GB/month is free."}
                     </p>
                   </div>
                 </div>
@@ -338,7 +338,7 @@ export default function Profile() {
                   </div>
                   <div className="p-3 rounded-md bg-muted/50">
                     <p className="text-xs text-muted-foreground">Free Allowance</p>
-                    <p className="text-lg font-semibold" data-testid="text-free-tier">10 GB</p>
+                    <p className="text-lg font-semibold" data-testid="text-free-tier">5 GB</p>
                   </div>
                 </div>
               </div>
@@ -351,7 +351,7 @@ export default function Profile() {
                     <div className="flex-1">
                       <p className="text-sm font-medium" data-testid="text-payment-warning">Payment method needed</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        You've exceeded the free 10 GB tier. Add a card to continue uploading.
+                        You've exceeded the free 5 GB tier. Add a card to continue uploading.
                         Overages are billed at $0.10/GB.
                       </p>
                     </div>
@@ -367,7 +367,7 @@ export default function Profile() {
                     <div className="flex-1">
                       <p className="text-sm font-medium" data-testid="text-billing-active">Billing active</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Overages beyond 10 GB will be billed at $0.10/GB at the end of the billing cycle.
+                        Overages beyond 5 GB will be billed at $0.10/GB at the end of the billing cycle.
                       </p>
                     </div>
                     <Badge variant="secondary" data-testid="badge-card-on-file">
