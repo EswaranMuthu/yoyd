@@ -1,10 +1,9 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useS3Objects, useSyncObjects, useCreateFolder, useGetDownloadUrl, useDeleteObjects, useStorageStats } from "@/hooks/use-s3";
-import { fetchWithAuth } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatFileSize, generateBreadcrumbs } from "@/lib/file-utils";
+import { useMutation } from "@tanstack/react-query";
 import { useUploadManager, type UploadItem } from "@/hooks/use-upload-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +13,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
@@ -45,10 +43,14 @@ import {
   ChevronDown,
   ChevronUp,
   Ban,
-  CreditCard,
-  AlertTriangle,
+  User,
+  Share2,
+  Copy,
+  Check,
+  Menu,
 } from "lucide-react";
 import { format } from "date-fns";
+import { useLocation } from "wouter";
 import type { S3Object } from "@shared/schema";
 
 function getFileIcon(object: S3Object) {
@@ -74,6 +76,7 @@ function getFileIcon(object: S3Object) {
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   
   const [currentPath, setCurrentPath] = useState<string>("");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
@@ -85,6 +88,11 @@ export default function Dashboard() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(false);
   const [isUploadPanelVisible, setIsUploadPanelVisible] = useState(true);
+  const [shareTarget, setShareTarget] = useState<S3Object | null>(null);
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareResult, setShareResult] = useState<{ shareLink: string; emailSent: boolean } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,52 +106,24 @@ export default function Dashboard() {
   const deleteMutation = useDeleteObjects();
   const uploadManager = useUploadManager();
 
-  const { data: paymentStatus } = useQuery<{
-    hasCard: boolean;
-    exceededFreeTier: boolean;
-    monthlyConsumedBytes: number;
-    needsPaymentMethod: boolean;
-  }>({
-    queryKey: ["/api/stripe/payment-status"],
-    staleTime: 60_000,
+  const shareMutation = useMutation({
+    mutationFn: async (data: { objectKey: string; objectName: string; recipientEmail: string }) => {
+      const res = await apiRequest("POST", "/api/shares", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setShareResult({ shareLink: data.shareLink, emailSent: data.emailSent });
+      toast({
+        title: "File shared",
+        description: data.emailSent
+          ? `Share link sent to ${data.recipientEmail}`
+          : "Share link created (email delivery may be delayed)",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to share", description: error.message, variant: "destructive" });
+    },
   });
-
-  const [billingLoading, setBillingLoading] = useState(false);
-  const handleAddPaymentMethod = useCallback(async () => {
-    setBillingLoading(true);
-    try {
-      const res = await apiRequest("POST", "/api/stripe/checkout-session");
-      const { url } = await res.json();
-      window.location.href = url;
-    } catch {
-      toast({
-        variant: "destructive",
-        title: "Payment setup failed",
-        description: "Could not open the payment setup page. Please try again.",
-      });
-      setBillingLoading(false);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const payment = params.get("payment");
-    if (payment === "success") {
-      toast({
-        title: "Payment method added",
-        description: "Your card has been saved. You're all set!",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/stripe/payment-status"] });
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (payment === "cancelled") {
-      toast({
-        variant: "destructive",
-        title: "Payment setup cancelled",
-        description: "You can add a payment method anytime from the dashboard.",
-      });
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, [toast]);
 
   const breadcrumbs = generateBreadcrumbs(currentPath);
 
@@ -466,12 +446,51 @@ export default function Dashboard() {
   }, [objects, selectedKeys]);
 
   return (
-    <div className="min-h-screen bg-muted/20 flex">
+    <div className="min-h-screen bg-muted/20 flex flex-col md:flex-row">
+      <div className="md:hidden sticky top-0 z-20 bg-card border-b border-border px-4 py-3 flex items-center justify-between" data-testid="mobile-header">
+        <div className="flex items-center gap-3">
+          <img src="/favicon.png" alt="goyoyd" className="w-7 h-7 rounded-lg shadow-lg shadow-primary/25" />
+          <span className="text-lg font-bold font-display tracking-tight">goyoyd</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/profile")} data-testid="mobile-nav-profile">
+            <User className="w-5 h-5" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} data-testid="mobile-menu-toggle">
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </Button>
+        </div>
+      </div>
+
+      {mobileMenuOpen && (
+        <div className="md:hidden bg-card border-b border-border px-4 py-3 space-y-2 z-20" data-testid="mobile-menu">
+          <button
+            className="flex items-center gap-3 px-3 py-2 w-full text-left rounded-md hover:bg-muted"
+            onClick={() => { navigate("/profile"); setMobileMenuOpen(false); }}
+            data-testid="mobile-menu-profile"
+          >
+            <Avatar className="w-7 h-7 border border-border">
+              <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{user?.firstName} {user?.lastName}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            </div>
+          </button>
+          <Button variant="outline" className="w-full justify-start gap-2" onClick={() => { logout(); setMobileMenuOpen(false); }} data-testid="mobile-button-logout">
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </Button>
+        </div>
+      )}
+
       <aside className="w-64 bg-card border-r border-border hidden md:flex flex-col fixed h-full z-10">
         <div className="p-6 border-b border-border/50">
           <div className="flex items-center gap-3">
-            <img src="/favicon.png" alt="yoyd" className="w-8 h-8 rounded-lg shadow-lg shadow-primary/25" />
-            <span className="text-lg font-bold font-display tracking-tight">yoyd</span>
+            <img src="/favicon.png" alt="goyoyd" className="w-8 h-8 rounded-lg shadow-lg shadow-primary/25" />
+            <span className="text-lg font-bold font-display tracking-tight">goyoyd</span>
           </div>
         </div>
         
@@ -480,65 +499,23 @@ export default function Dashboard() {
             <HardDrive className="w-4 h-4" />
             Storage Browser
           </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-3"
+            onClick={() => navigate("/profile")}
+            data-testid="nav-profile"
+          >
+            <User className="w-4 h-4" />
+            {user?.firstName || "Profile"}
+          </Button>
         </nav>
 
-        <div className="px-4 py-3 border-t border-border/50" data-testid="billing-sidebar">
-          {paymentStatus?.hasCard ? (
-            <div className="flex items-center gap-3 px-2 py-1">
-              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium">Card on file</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatFileSize(paymentStatus.monthlyConsumedBytes ?? 0)} used this month
-                </p>
-              </div>
-            </div>
-          ) : (
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2"
-              onClick={handleAddPaymentMethod}
-              disabled={billingLoading}
-              data-testid="button-sidebar-add-payment"
-            >
-              {billingLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <CreditCard className="w-4 h-4" />
-              )}
-              Add Payment Method
-            </Button>
-          )}
-        </div>
-
-        {storageStats && (
-          <div className="px-4 py-3 border-t border-border/50" data-testid="storage-usage">
-            <div className="flex items-center gap-3">
-              <div className="relative w-11 h-11 shrink-0">
-                <svg className="w-11 h-11 -rotate-90" viewBox="0 0 44 44">
-                  <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3" className="text-border" />
-                  <circle
-                    cx="22" cy="22" r="18" fill="none"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    className="text-primary"
-                    strokeDasharray={`${Math.min((storageStats.totalBytes / (5 * 1024 * 1024 * 1024)) * 113, 113)} 113`}
-                  />
-                </svg>
-                <HardDrive className="w-4 h-4 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold" data-testid="text-total-storage">
-                  {formatFileSize(storageStats.totalBytes)}
-                </p>
-                <p className="text-xs text-muted-foreground">total storage used</p>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="p-4 border-t border-border/50">
-          <div className="flex items-center gap-3 mb-4 px-2">
+          <button
+            className="flex items-center gap-3 mb-4 px-2 w-full text-left rounded-md hover-elevate cursor-pointer"
+            onClick={() => navigate("/profile")}
+            data-testid="button-avatar-profile"
+          >
             <Avatar className="w-8 h-8 border border-border">
               <AvatarFallback className="bg-primary/10 text-primary text-xs">
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
@@ -548,7 +525,7 @@ export default function Dashboard() {
               <p className="text-sm font-medium truncate" data-testid="text-username">{user?.firstName} {user?.lastName}</p>
               <p className="text-xs text-muted-foreground truncate" data-testid="text-email">{user?.email}</p>
             </div>
-          </div>
+          </button>
           <Button variant="outline" className="w-full justify-start gap-2" onClick={() => logout()} data-testid="button-logout">
             <LogOut className="w-4 h-4" />
             Sign Out
@@ -557,27 +534,30 @@ export default function Dashboard() {
       </aside>
 
       <main
-        className="flex-1 md:ml-64 p-4 lg:p-8 relative"
+        className="flex-1 md:ml-64 p-3 sm:p-4 lg:p-8 relative"
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        <header className="flex flex-col gap-4 mb-6">
+        <header className="flex flex-col gap-3 sm:gap-4 mb-4 sm:mb-6">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-3xl font-bold font-display text-foreground" data-testid="text-title">Storage Browser</h1>
-              <p className="text-muted-foreground mt-1">Browse and manage your S3 storage</p>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold font-display text-foreground" data-testid="text-title">Storage Browser</h1>
+              <p className="text-sm sm:text-base text-muted-foreground mt-1">Browse and manage your S3 storage</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={handleSync} disabled={syncMutation.isPending} data-testid="button-sync">
+              <Button variant="outline" size="sm" className="sm:hidden" onClick={handleSync} disabled={syncMutation.isPending} data-testid="button-sync-mobile">
+                <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+              </Button>
+              <Button variant="outline" className="hidden sm:flex" onClick={handleSync} disabled={syncMutation.isPending} data-testid="button-sync">
                 <RefreshCw className={`w-4 h-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                 Sync
               </Button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-2 text-sm overflow-x-auto pb-1">
             <Button 
               variant="ghost" 
               size="sm" 
@@ -604,72 +584,21 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {paymentStatus?.needsPaymentMethod && (
-          <Card className="mb-4 border-yellow-500/50 dark:border-yellow-500/30" data-testid="billing-banner">
-            <CardContent className="flex items-center gap-4 py-4">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-yellow-500/10 shrink-0">
-                <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium" data-testid="text-billing-title">Payment method needed</p>
-                <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-billing-desc">
-                  You've used {formatFileSize(paymentStatus.monthlyConsumedBytes)} this month (10 GB free).
-                  Add a payment method so we can bill any overages at $0.10/GB.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                onClick={handleAddPaymentMethod}
-                disabled={billingLoading}
-                data-testid="button-add-payment"
-              >
-                {billingLoading ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <CreditCard className="w-4 h-4 mr-2" />
-                )}
-                Add Card
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {paymentStatus?.exceededFreeTier && paymentStatus?.hasCard && (
-          <Card className="mb-4 border-green-500/50 dark:border-green-500/30" data-testid="billing-ok-banner">
-            <CardContent className="flex items-center gap-4 py-4">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-green-500/10 shrink-0">
-                <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium" data-testid="text-billing-ok-title">Payment method on file</p>
-                <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-billing-ok-desc">
-                  You've used {formatFileSize(paymentStatus.monthlyConsumedBytes)} this month. 
-                  Overages beyond 10 GB will be billed at $0.10/GB at the end of the billing cycle.
-                </p>
-              </div>
-              <Badge variant="secondary" data-testid="badge-card-on-file">
-                <CreditCard className="w-3 h-3 mr-1" />
-                Card on file
-              </Badge>
-            </CardContent>
-          </Card>
-        )}
-
         <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-4">
+          <CardHeader className="pb-3 px-3 sm:px-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
               <div>
-                <CardTitle className="text-lg">Files & Folders</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-base sm:text-lg">Files & Folders</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
                   {objects?.length ?? 0} items in {currentPath || "root"}
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                 <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm" data-testid="button-new-folder">
-                      <FolderPlus className="w-4 h-4 mr-2" />
-                      New Folder
+                      <FolderPlus className="w-4 h-4 sm:mr-2" />
+                      <span className="hidden sm:inline">New Folder</span>
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
@@ -704,8 +633,8 @@ export default function Dashboard() {
 
                 <Button variant="outline" size="sm" disabled={uploadManager.isProcessing} asChild data-testid="button-upload">
                   <label className="cursor-pointer">
-                    <Upload className="w-4 h-4 mr-2" />
-                    Files
+                    <Upload className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Files</span>
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -718,8 +647,8 @@ export default function Dashboard() {
 
                 <Button variant="outline" size="sm" disabled={uploadManager.isProcessing} asChild data-testid="button-upload-folder">
                   <label className="cursor-pointer">
-                    <FolderUp className="w-4 h-4 mr-2" />
-                    Folder
+                    <FolderUp className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Folder</span>
                     <input
                       ref={folderInputRef}
                       type="file"
@@ -737,14 +666,15 @@ export default function Dashboard() {
                     onClick={() => setIsDeleteOpen(true)}
                     data-testid="button-delete"
                   >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete ({selectedKeys.size})
+                    <Trash2 className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Delete ({selectedKeys.size})</span>
+                    <span className="sm:hidden">{selectedKeys.size}</span>
                   </Button>
                 )}
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-2 sm:px-6">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -847,18 +777,33 @@ export default function Dashboard() {
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {!object.isFolder && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleFileClick(object)}
-                            data-testid={`button-action-${object.id}`}
-                          >
-                            {isImageFile(object) ? (
-                              <Eye className="w-4 h-4" />
-                            ) : (
-                              <Download className="w-4 h-4" />
-                            )}
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleFileClick(object)}
+                              data-testid={`button-action-${object.id}`}
+                            >
+                              {isImageFile(object) ? (
+                                <Eye className="w-4 h-4" />
+                              ) : (
+                                <Download className="w-4 h-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setShareTarget(object);
+                                setShareEmail("");
+                                setShareResult(null);
+                                setLinkCopied(false);
+                              }}
+                              data-testid={`button-share-${object.id}`}
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
@@ -891,6 +836,93 @@ export default function Dashboard() {
           </AlertDialogContent>
         </AlertDialog>
 
+        <Dialog open={!!shareTarget} onOpenChange={(open) => { if (!open) { setShareTarget(null); setShareResult(null); } }}>
+          <DialogContent className="sm:max-w-md" data-testid="share-dialog">
+            <DialogHeader>
+              <DialogTitle>Share File</DialogTitle>
+              <DialogDescription>
+                Share "{shareTarget?.name}" with someone via email. They'll get a download link that expires in 7 days.
+              </DialogDescription>
+            </DialogHeader>
+            {!shareResult ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="share-email">Recipient email</label>
+                  <Input
+                    id="share-email"
+                    type="email"
+                    placeholder="name@example.com"
+                    value={shareEmail}
+                    onChange={(e) => setShareEmail(e.target.value)}
+                    data-testid="input-share-email"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShareTarget(null)}
+                    data-testid="button-share-cancel"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (!shareTarget || !shareEmail) return;
+                      shareMutation.mutate({
+                        objectKey: shareTarget.key,
+                        objectName: shareTarget.name,
+                        recipientEmail: shareEmail,
+                      });
+                    }}
+                    disabled={!shareEmail || shareMutation.isPending}
+                    data-testid="button-share-send"
+                  >
+                    {shareMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Share
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                  <Input
+                    readOnly
+                    value={shareResult.shareLink}
+                    className="text-sm"
+                    data-testid="input-share-link"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      navigator.clipboard.writeText(shareResult.shareLink);
+                      setLinkCopied(true);
+                      setTimeout(() => setLinkCopied(false), 2000);
+                    }}
+                    data-testid="button-copy-link"
+                  >
+                    {linkCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  </Button>
+                </div>
+                {shareResult.emailSent ? (
+                  <p className="text-sm text-muted-foreground" data-testid="text-share-status">
+                    An email with the download link has been sent to {shareEmail}.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground" data-testid="text-share-status">
+                    Share link created. Email notification could not be sent - share the link directly.
+                  </p>
+                )}
+                <DialogFooter>
+                  <Button onClick={() => { setShareTarget(null); setShareResult(null); }} data-testid="button-share-done">
+                    Done
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={!!previewImage} onOpenChange={(open) => { if (!open) setPreviewImage(null); }}>
           <DialogContent
             className="max-w-[95vw] max-h-[95vh] w-auto p-0 border-none bg-black/90 overflow-hidden"
@@ -900,19 +932,19 @@ export default function Dashboard() {
               <DialogTitle>{previewImage?.name ?? "Image Preview"}</DialogTitle>
               <DialogDescription>Preview of {previewImage?.name ?? "image"}</DialogDescription>
             </DialogHeader>
-            <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
-              <div className="flex items-center gap-3">
+            <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10 gap-2">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={() => setPreviewImage(null)}
-                  className="bg-background/80 backdrop-blur-sm"
+                  className="bg-background/80 backdrop-blur-sm shrink-0"
                   data-testid="button-close-preview"
                 >
                   <X className="w-4 h-4" />
                 </Button>
-                <div className="bg-background/80 backdrop-blur-sm rounded-md px-3 py-1.5">
-                  <p className="text-sm font-medium truncate max-w-xs" data-testid="text-preview-name">{previewImage?.name}</p>
+                <div className="bg-background/80 backdrop-blur-sm rounded-md px-2 sm:px-3 py-1.5 min-w-0">
+                  <p className="text-xs sm:text-sm font-medium truncate max-w-[150px] sm:max-w-xs" data-testid="text-preview-name">{previewImage?.name}</p>
                   {previewImage?.size && (
                     <p className="text-xs text-muted-foreground">{formatFileSize(previewImage.size)}</p>
                   )}
@@ -920,8 +952,17 @@ export default function Dashboard() {
               </div>
               <Button
                 variant="outline"
+                size="icon"
                 onClick={handleDownloadFromPreview}
-                className="bg-background/80 backdrop-blur-sm"
+                className="bg-background/80 backdrop-blur-sm shrink-0 sm:hidden"
+                data-testid="button-preview-download-mobile"
+              >
+                <Download className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleDownloadFromPreview}
+                className="bg-background/80 backdrop-blur-sm hidden sm:flex shrink-0"
                 data-testid="button-preview-download"
               >
                 <Download className="w-4 h-4 mr-2" />
@@ -993,7 +1034,7 @@ export default function Dashboard() {
 
         {uploadManager.uploads.length > 0 && (isUploadPanelVisible || uploadManager.isProcessing) && (
           <div
-            className="fixed bottom-4 right-4 z-30 w-96 max-w-[calc(100vw-2rem)] bg-card border border-border rounded-md shadow-lg"
+            className="fixed bottom-4 right-2 sm:right-4 z-30 w-[calc(100vw-1rem)] sm:w-96 sm:max-w-[calc(100vw-2rem)] bg-card border border-border rounded-md shadow-lg"
             data-testid="upload-panel"
           >
             <div

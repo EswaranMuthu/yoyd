@@ -66,9 +66,24 @@ export const stripeEvents = pgTable("stripe_events", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const fileShares = pgTable("file_shares", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  objectKey: text("object_key").notNull(),
+  objectName: text("object_name").notNull(),
+  recipientEmail: varchar("recipient_email").notNull(),
+  token: varchar("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  lastAccessedAt: timestamp("last_accessed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type RefreshToken = typeof refreshTokens.$inferSelect;
 export type SecretVault = typeof secretsVault.$inferSelect;
 export type BillingRecord = typeof billingRecords.$inferSelect;
 export type StripeEvent = typeof stripeEvents.$inferSelect;
+export type FileShare = typeof fileShares.$inferSelect;
+export type InsertFileShare = typeof fileShares.$inferInsert;

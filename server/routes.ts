@@ -25,11 +25,13 @@ import {
 } from "./s3";
 import { getUserPrefix, addUserPrefix, stripUserPrefix, stripPrefixFromObject, sanitizeFileName, isValidFileName, hasPathTraversal, cleanETag } from "./helpers";
 import type { InsertS3Object, S3Object } from "@shared/schema";
-import { users, billingRecords, stripeEvents } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { users, billingRecords, stripeEvents, fileShares } from "@shared/schema";
+import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import { authStorage } from "./auth/storage";
 import { createStripeCustomer, createCheckoutSession, hasPaymentMethod, setDefaultPaymentMethod, constructWebhookEvent } from "./stripe";
+import { sendShareEmail } from "./email";
+import crypto from "crypto";
 
 async function recalcUserStorage(username: string) {
   try {
@@ -625,8 +627,8 @@ export async function registerRoutes(
       const origin = `${req.protocol}://${req.get("host")}`;
       const { sessionId, url } = await createCheckoutSession(
         stripeCustomerId,
-        `${origin}/dashboard?payment=success`,
-        `${origin}/dashboard?payment=cancelled`,
+        `${origin}/profile?payment=success`,
+        `${origin}/profile?payment=cancelled`,
       );
 
       res.json({ sessionId, url });
@@ -731,6 +733,145 @@ export async function registerRoutes(
     } catch (error: any) {
       logger.routes.error("Stripe webhook error", error);
       res.status(400).json({ message: "Webhook error" });
+    }
+  });
+
+  // === FILE SHARING ROUTES ===
+
+  const shareSchema = z.object({
+    objectKey: z.string().min(1),
+    objectName: z.string().min(1),
+    recipientEmail: z.string().email(),
+  });
+
+  app.post("/api/shares", isAuthenticated, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const parsed = shareSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      }
+      const { objectKey, objectName, recipientEmail } = parsed.data;
+
+      const fullKey = addUserPrefix(objectKey, authUser.username);
+
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      const [share] = await db.insert(fileShares).values({
+        ownerUserId: authUser.id,
+        objectKey: fullKey,
+        objectName,
+        recipientEmail,
+        token,
+        expiresAt,
+      }).returning();
+
+      const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const shareLink = `${protocol}://${host}/share/${token}`;
+
+      const ownerName = [authUser.firstName, authUser.lastName].filter(Boolean).join(" ") || authUser.username;
+      const emailSent = await sendShareEmail(recipientEmail, shareLink, objectName, ownerName);
+
+      logger.routes.info("File shared", { user: authUser.username, file: objectName, to: recipientEmail, emailSent });
+
+      res.json({
+        id: share.id,
+        objectName: share.objectName,
+        recipientEmail: share.recipientEmail,
+        token: share.token,
+        expiresAt: share.expiresAt,
+        createdAt: share.createdAt,
+        shareLink,
+        emailSent,
+      });
+    } catch (error: any) {
+      logger.routes.error("Failed to create share", error);
+      res.status(500).json({ message: "Failed to share file" });
+    }
+  });
+
+  app.get("/api/shares", isAuthenticated, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const shares = await db.select().from(fileShares)
+        .where(eq(fileShares.ownerUserId, authUser.id))
+        .orderBy(desc(fileShares.createdAt));
+
+      const result = shares.map(s => ({
+        ...s,
+        objectKey: stripUserPrefix(s.objectKey, authUser.username),
+        isExpired: new Date(s.expiresAt) < new Date(),
+        isRevoked: !!s.revokedAt,
+      }));
+
+      res.json(result);
+    } catch (error: any) {
+      logger.routes.error("Failed to list shares", error);
+      res.status(500).json({ message: "Failed to list shares" });
+    }
+  });
+
+  app.post("/api/shares/:id/revoke", isAuthenticated, async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const shareId = req.params.id;
+
+      const [existing] = await db.select().from(fileShares)
+        .where(sql`${fileShares.id} = ${shareId} AND ${fileShares.ownerUserId} = ${authUser.id}`);
+
+      if (!existing) {
+        return res.status(404).json({ message: "Share not found" });
+      }
+      if (existing.revokedAt) {
+        return res.status(400).json({ message: "Share already revoked" });
+      }
+
+      const [updated] = await db.update(fileShares)
+        .set({ revokedAt: new Date() })
+        .where(sql`${fileShares.id} = ${shareId}`)
+        .returning();
+
+      logger.routes.info("Share revoked", { shareId, user: authUser.username });
+      res.json({ ...updated, objectKey: stripUserPrefix(updated.objectKey, authUser.username), isRevoked: true });
+    } catch (error: any) {
+      logger.routes.error("Failed to revoke share", error);
+      res.status(500).json({ message: "Failed to revoke share" });
+    }
+  });
+
+  app.get("/api/shares/download/:token", async (req, res) => {
+    try {
+      const token = req.params.token;
+      const [share] = await db.select().from(fileShares)
+        .where(eq(fileShares.token, token));
+
+      if (!share) {
+        return res.status(404).json({ message: "Share not found" });
+      }
+      if (share.revokedAt) {
+        return res.status(410).json({ message: "This share has been revoked by the owner" });
+      }
+      if (new Date(share.expiresAt) < new Date()) {
+        return res.status(410).json({ message: "This share link has expired" });
+      }
+
+      const downloadUrl = await getPresignedDownloadUrl(share.objectKey);
+
+      await db.update(fileShares)
+        .set({ lastAccessedAt: new Date() })
+        .where(eq(fileShares.id, share.id));
+
+      logger.routes.info("Share downloaded", { shareId: share.id, file: share.objectName });
+      res.json({
+        objectName: share.objectName,
+        downloadUrl,
+        expiresAt: share.expiresAt,
+      });
+    } catch (error: any) {
+      logger.routes.error("Failed to process share download", error);
+      res.status(500).json({ message: "Failed to download shared file" });
     }
   });
 
