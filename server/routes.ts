@@ -644,7 +644,7 @@ export async function registerRoutes(
       const dbUser = await authStorage.getUserByUsername(user.username);
       if (!dbUser) return res.status(404).json({ message: "User not found" });
 
-      const FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024;
+      const FREE_TIER_BYTES = 5 * 1024 * 1024 * 1024;
       const consumed = dbUser.monthlyConsumedBytes ?? 0;
       const exceededFreeTier = consumed > FREE_TIER_BYTES;
 

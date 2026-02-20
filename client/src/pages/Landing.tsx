@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Cloud, Shield, FolderOpen, Loader2, ArrowRight, Sparkles, Camera, Image, Lock, User, Mail } from "lucide-react";
+import { Cloud, Shield, FolderOpen, Loader2, ArrowRight, Sparkles, Camera, Image, Lock, User, Mail, Check, Zap, HardDrive, Share2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -192,7 +192,15 @@ export default function Landing() {
               <img src="/favicon.png" alt="goyoyd" className="w-9 h-9 rounded-md shadow-lg shadow-violet-500/30" />
               <span className="text-xl font-bold font-display tracking-tight text-foreground">goyoyd</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+                className="text-muted-foreground hover:text-foreground"
+                data-testid="button-nav-pricing"
+              >
+                Pricing
+              </Button>
               <Button
                 variant="ghost"
                 onClick={openLogin}
@@ -259,7 +267,19 @@ export default function Landing() {
             </Button>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-4 sm:gap-5 mt-12 sm:mt-20 max-w-4xl mx-auto">
+          <button
+            onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+            className="mt-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer mx-auto"
+            data-testid="button-hero-pricing-teaser"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>5 GB free every month</span>
+            <span className="text-border">·</span>
+            <span>then just $0.10/GB</span>
+            <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+          </button>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mt-12 sm:mt-20 max-w-5xl mx-auto">
             <FeatureCard
               icon={<Cloud className="w-6 h-6" />}
               gradient="from-violet-500 to-indigo-600"
@@ -278,8 +298,104 @@ export default function Landing() {
               title="Full Control"
               description="Upload, download, create folders, and delete files all from one interface."
             />
+            <FeatureCard
+              icon={<Share2 className="w-6 h-6" />}
+              gradient="from-cyan-500 to-blue-600"
+              title="Share Securely"
+              description="Share any file with a secure link. Set expiration dates and revoke access anytime."
+            />
           </div>
         </div>
+      </div>
+
+      <div id="pricing" className="relative py-16 sm:py-24 px-4 scroll-mt-20">
+        <div className="absolute inset-0 -z-10 overflow-hidden">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-violet-400/10 via-fuchsia-400/10 to-amber-400/10 rounded-full blur-3xl" />
+        </div>
+
+        <div className="max-w-4xl mx-auto text-center mb-12">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 text-sm font-medium mb-6">
+            <Zap className="w-4 h-4 text-emerald-500" />
+            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Simple, Honest Pricing</span>
+          </div>
+          <h2 className="text-2xl sm:text-4xl font-bold font-display tracking-tight text-foreground mb-4">
+            Start free. Pay only for what you use.
+          </h2>
+          <p className="text-muted-foreground text-base sm:text-lg max-w-xl mx-auto">
+            No subscriptions, no hidden fees. Just storage that scales with you.
+          </p>
+        </div>
+
+        <div className="max-w-3xl mx-auto grid sm:grid-cols-2 gap-6">
+          <div className="relative p-6 sm:p-8 rounded-xl bg-card border border-border/50 text-left" data-testid="pricing-free">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white">
+                <HardDrive className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Free Tier</p>
+                <p className="text-2xl font-bold">5 GB</p>
+              </div>
+            </div>
+            <p className="text-3xl sm:text-4xl font-bold mb-1">
+              $0<span className="text-lg font-normal text-muted-foreground">/month</span>
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">Every month, on us.</p>
+            <ul className="space-y-3">
+              <PricingFeature text="5 GB of uploads every month" />
+              <PricingFeature text="Unlimited file browsing" />
+              <PricingFeature text="Folder management" />
+              <PricingFeature text="File sharing via link" />
+              <PricingFeature text="Image preview with gallery" />
+            </ul>
+            <Button
+              className="w-full mt-8 bg-gradient-to-r from-violet-600 to-fuchsia-500 border-violet-600 text-white"
+              onClick={openRegister}
+              data-testid="button-pricing-free"
+            >
+              Get Started Free
+              <ArrowRight className="ml-2 w-4 h-4" />
+            </Button>
+          </div>
+
+          <div className="relative p-6 sm:p-8 rounded-xl bg-card border-2 border-amber-500/40 text-left shadow-lg shadow-amber-500/5" data-testid="pricing-pro">
+            <div className="absolute -top-3 right-6 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold uppercase tracking-wider">
+              Pay as you go
+            </div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white">
+                <Zap className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Beyond 5 GB</p>
+                <p className="text-2xl font-bold">Unlimited</p>
+              </div>
+            </div>
+            <p className="text-3xl sm:text-4xl font-bold mb-1">
+              $0.10<span className="text-lg font-normal text-muted-foreground">/GB</span>
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">Only charged when you exceed 5 GB.</p>
+            <ul className="space-y-3">
+              <PricingFeature text="Everything in Free" />
+              <PricingFeature text="Unlimited storage capacity" />
+              <PricingFeature text="Automatic monthly billing" />
+              <PricingFeature text="Secure card-on-file payment" />
+              <PricingFeature text="No commitments, cancel anytime" />
+            </ul>
+            <Button
+              variant="outline"
+              className="w-full mt-8 border-amber-500/40 hover:bg-amber-500/10"
+              onClick={openRegister}
+              data-testid="button-pricing-pro"
+            >
+              Start Free, Upgrade Later
+            </Button>
+          </div>
+        </div>
+
+        <p className="text-center text-xs text-muted-foreground mt-8 max-w-md mx-auto">
+          Billing is based on cumulative uploads per month. Deletions don't reduce usage. No card needed to start.
+        </p>
       </div>
 
       <footer className="py-8 border-t border-border/50">
@@ -481,5 +597,14 @@ function FeatureCard({ icon, gradient, title, description }: { icon: React.React
       <h3 className="text-base font-bold mb-2">{title}</h3>
       <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
     </div>
+  );
+}
+
+function PricingFeature({ text }: { text: string }) {
+  return (
+    <li className="flex items-center gap-2.5 text-sm">
+      <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+      <span>{text}</span>
+    </li>
   );
 }
