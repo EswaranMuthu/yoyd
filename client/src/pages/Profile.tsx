@@ -25,6 +25,8 @@ import {
   Share2,
   XCircle,
   FileText,
+  Menu,
+  X,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
@@ -132,7 +134,26 @@ export default function Profile() {
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.username || "";
 
   return (
-    <div className="min-h-screen bg-muted/20 flex">
+    <div className="min-h-screen bg-muted/20 flex flex-col md:flex-row">
+      <div className="md:hidden sticky top-0 z-20 bg-card border-b border-border px-4 py-3 flex items-center justify-between" data-testid="mobile-header">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate("/")}
+            data-testid="button-back-to-storage"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <span className="text-lg font-bold font-display tracking-tight">Profile</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/")} data-testid="mobile-nav-storage">
+            <HardDrive className="w-5 h-5" />
+          </Button>
+        </div>
+      </div>
+
       <aside className="w-64 bg-card border-r border-border hidden md:flex flex-col fixed h-full z-10">
         <div className="p-6 border-b border-border/50">
           <div className="flex items-center gap-3">
@@ -206,26 +227,17 @@ export default function Profile() {
         </div>
       </aside>
 
-      <main className="flex-1 md:ml-64 p-4 lg:p-8">
-        <header className="flex flex-col gap-4 mb-6">
+      <main className="flex-1 md:ml-64 p-3 sm:p-4 lg:p-8">
+        <header className="flex flex-col gap-4 mb-4 sm:mb-6 hidden md:flex">
           <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate("/")}
-              data-testid="button-back-to-storage"
-              className="md:hidden"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
             <div>
-              <h1 className="text-3xl font-bold font-display text-foreground" data-testid="text-profile-title">Profile</h1>
-              <p className="text-muted-foreground mt-1">Manage your account and billing</p>
+              <h1 className="text-2xl lg:text-3xl font-bold font-display text-foreground" data-testid="text-profile-title">Profile</h1>
+              <p className="text-sm sm:text-base text-muted-foreground mt-1">Manage your account and billing</p>
             </div>
           </div>
         </header>
 
-        <div className="max-w-2xl space-y-6">
+        <div className="max-w-2xl space-y-4 sm:space-y-6">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -275,7 +287,7 @@ export default function Profile() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                 <div className="flex items-center gap-3">
                   {paymentStatus?.hasCard ? (
                     <div className="flex items-center justify-center w-10 h-10 rounded-full bg-green-500/10 shrink-0">
@@ -301,6 +313,7 @@ export default function Profile() {
                   variant={paymentStatus?.hasCard ? "outline" : "default"}
                   onClick={handleAddPaymentMethod}
                   disabled={billingLoading}
+                  className="w-full sm:w-auto"
                   data-testid="button-manage-payment"
                 >
                   {billingLoading ? (
@@ -425,10 +438,10 @@ export default function Profile() {
                     return (
                       <div
                         key={share.id}
-                        className="flex items-center gap-3 p-3 rounded-md border border-border/50"
+                        className="flex items-start sm:items-center gap-3 p-3 rounded-md border border-border/50"
                         data-testid={`share-item-${share.id}`}
                       >
-                        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
+                        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
                           <FileText className="w-4 h-4 text-muted-foreground" />
                         </div>
                         <div className="flex-1 min-w-0">

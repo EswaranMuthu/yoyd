@@ -121,10 +121,11 @@ export default function Landing() {
       ux_mode: "popup",
       allowed_parent_origin: [window.location.origin],
     });
+    const buttonWidth = Math.min(container.offsetWidth || 392, 392);
     window.google.accounts.id.renderButton(container, {
       theme: "outline",
       size: "large",
-      width: 392,
+      width: buttonWidth,
       text: "continue_with",
       shape: "rectangular",
       logo_alignment: "left",
@@ -211,7 +212,7 @@ export default function Landing() {
         </div>
       </nav>
 
-      <div className="relative pt-28 pb-20 lg:pt-36 lg:pb-24 px-4">
+      <div className="relative pt-24 pb-16 sm:pt-28 sm:pb-20 lg:pt-36 lg:pb-24 px-4">
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
           <div className="absolute top-20 left-1/4 w-72 h-72 bg-violet-400/20 rounded-full blur-3xl" />
           <div className="absolute top-40 right-1/4 w-80 h-80 bg-fuchsia-400/15 rounded-full blur-3xl" />
@@ -227,14 +228,14 @@ export default function Landing() {
             </span>
           </div>
 
-          <h1 className="text-5xl lg:text-7xl font-bold font-display tracking-tight text-foreground mb-6 leading-tight">
+          <h1 className="text-3xl sm:text-5xl lg:text-7xl font-bold font-display tracking-tight text-foreground mb-6 leading-tight">
             You Own It.{" "}
             <span className="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-amber-500 bg-clip-text text-transparent">
               We Just Help You See It.
             </span>
           </h1>
 
-          <p className="text-lg lg:text-xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-base sm:text-lg lg:text-xl text-muted-foreground mb-8 sm:mb-10 max-w-2xl mx-auto leading-relaxed">
             Where Data Belongs to Its Owner.
           </p>
 
@@ -258,7 +259,7 @@ export default function Landing() {
             </Button>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-5 mt-20 max-w-4xl mx-auto">
+          <div className="grid sm:grid-cols-3 gap-4 sm:gap-5 mt-12 sm:mt-20 max-w-4xl mx-auto">
             <FeatureCard
               icon={<Cloud className="w-6 h-6" />}
               gradient="from-violet-500 to-indigo-600"

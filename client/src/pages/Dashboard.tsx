@@ -47,6 +47,7 @@ import {
   Share2,
   Copy,
   Check,
+  Menu,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
@@ -91,6 +92,7 @@ export default function Dashboard() {
   const [shareEmail, setShareEmail] = useState("");
   const [shareResult, setShareResult] = useState<{ shareLink: string; emailSent: boolean } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const autoDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -444,7 +446,46 @@ export default function Dashboard() {
   }, [objects, selectedKeys]);
 
   return (
-    <div className="min-h-screen bg-muted/20 flex">
+    <div className="min-h-screen bg-muted/20 flex flex-col md:flex-row">
+      <div className="md:hidden sticky top-0 z-20 bg-card border-b border-border px-4 py-3 flex items-center justify-between" data-testid="mobile-header">
+        <div className="flex items-center gap-3">
+          <img src="/favicon.png" alt="goyoyd" className="w-7 h-7 rounded-lg shadow-lg shadow-primary/25" />
+          <span className="text-lg font-bold font-display tracking-tight">goyoyd</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/profile")} data-testid="mobile-nav-profile">
+            <User className="w-5 h-5" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} data-testid="mobile-menu-toggle">
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </Button>
+        </div>
+      </div>
+
+      {mobileMenuOpen && (
+        <div className="md:hidden bg-card border-b border-border px-4 py-3 space-y-2 z-20" data-testid="mobile-menu">
+          <button
+            className="flex items-center gap-3 px-3 py-2 w-full text-left rounded-md hover:bg-muted"
+            onClick={() => { navigate("/profile"); setMobileMenuOpen(false); }}
+            data-testid="mobile-menu-profile"
+          >
+            <Avatar className="w-7 h-7 border border-border">
+              <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{user?.firstName} {user?.lastName}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            </div>
+          </button>
+          <Button variant="outline" className="w-full justify-start gap-2" onClick={() => { logout(); setMobileMenuOpen(false); }} data-testid="mobile-button-logout">
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </Button>
+        </div>
+      )}
+
       <aside className="w-64 bg-card border-r border-border hidden md:flex flex-col fixed h-full z-10">
         <div className="p-6 border-b border-border/50">
           <div className="flex items-center gap-3">
@@ -493,27 +534,30 @@ export default function Dashboard() {
       </aside>
 
       <main
-        className="flex-1 md:ml-64 p-4 lg:p-8 relative"
+        className="flex-1 md:ml-64 p-3 sm:p-4 lg:p-8 relative"
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        <header className="flex flex-col gap-4 mb-6">
+        <header className="flex flex-col gap-3 sm:gap-4 mb-4 sm:mb-6">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-3xl font-bold font-display text-foreground" data-testid="text-title">Storage Browser</h1>
-              <p className="text-muted-foreground mt-1">Browse and manage your S3 storage</p>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold font-display text-foreground" data-testid="text-title">Storage Browser</h1>
+              <p className="text-sm sm:text-base text-muted-foreground mt-1">Browse and manage your S3 storage</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={handleSync} disabled={syncMutation.isPending} data-testid="button-sync">
+              <Button variant="outline" size="sm" className="sm:hidden" onClick={handleSync} disabled={syncMutation.isPending} data-testid="button-sync-mobile">
+                <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+              </Button>
+              <Button variant="outline" className="hidden sm:flex" onClick={handleSync} disabled={syncMutation.isPending} data-testid="button-sync">
                 <RefreshCw className={`w-4 h-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                 Sync
               </Button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-2 text-sm overflow-x-auto pb-1">
             <Button 
               variant="ghost" 
               size="sm" 
@@ -541,20 +585,20 @@ export default function Dashboard() {
         </header>
 
         <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-4">
+          <CardHeader className="pb-3 px-3 sm:px-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
               <div>
-                <CardTitle className="text-lg">Files & Folders</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-base sm:text-lg">Files & Folders</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
                   {objects?.length ?? 0} items in {currentPath || "root"}
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                 <Dialog open={isNewFolderOpen} onOpenChange={setIsNewFolderOpen}>
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm" data-testid="button-new-folder">
-                      <FolderPlus className="w-4 h-4 mr-2" />
-                      New Folder
+                      <FolderPlus className="w-4 h-4 sm:mr-2" />
+                      <span className="hidden sm:inline">New Folder</span>
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
@@ -589,8 +633,8 @@ export default function Dashboard() {
 
                 <Button variant="outline" size="sm" disabled={uploadManager.isProcessing} asChild data-testid="button-upload">
                   <label className="cursor-pointer">
-                    <Upload className="w-4 h-4 mr-2" />
-                    Files
+                    <Upload className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Files</span>
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -603,8 +647,8 @@ export default function Dashboard() {
 
                 <Button variant="outline" size="sm" disabled={uploadManager.isProcessing} asChild data-testid="button-upload-folder">
                   <label className="cursor-pointer">
-                    <FolderUp className="w-4 h-4 mr-2" />
-                    Folder
+                    <FolderUp className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Folder</span>
                     <input
                       ref={folderInputRef}
                       type="file"
@@ -622,14 +666,15 @@ export default function Dashboard() {
                     onClick={() => setIsDeleteOpen(true)}
                     data-testid="button-delete"
                   >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete ({selectedKeys.size})
+                    <Trash2 className="w-4 h-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Delete ({selectedKeys.size})</span>
+                    <span className="sm:hidden">{selectedKeys.size}</span>
                   </Button>
                 )}
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-2 sm:px-6">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -887,19 +932,19 @@ export default function Dashboard() {
               <DialogTitle>{previewImage?.name ?? "Image Preview"}</DialogTitle>
               <DialogDescription>Preview of {previewImage?.name ?? "image"}</DialogDescription>
             </DialogHeader>
-            <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
-              <div className="flex items-center gap-3">
+            <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10 gap-2">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={() => setPreviewImage(null)}
-                  className="bg-background/80 backdrop-blur-sm"
+                  className="bg-background/80 backdrop-blur-sm shrink-0"
                   data-testid="button-close-preview"
                 >
                   <X className="w-4 h-4" />
                 </Button>
-                <div className="bg-background/80 backdrop-blur-sm rounded-md px-3 py-1.5">
-                  <p className="text-sm font-medium truncate max-w-xs" data-testid="text-preview-name">{previewImage?.name}</p>
+                <div className="bg-background/80 backdrop-blur-sm rounded-md px-2 sm:px-3 py-1.5 min-w-0">
+                  <p className="text-xs sm:text-sm font-medium truncate max-w-[150px] sm:max-w-xs" data-testid="text-preview-name">{previewImage?.name}</p>
                   {previewImage?.size && (
                     <p className="text-xs text-muted-foreground">{formatFileSize(previewImage.size)}</p>
                   )}
@@ -907,8 +952,17 @@ export default function Dashboard() {
               </div>
               <Button
                 variant="outline"
+                size="icon"
                 onClick={handleDownloadFromPreview}
-                className="bg-background/80 backdrop-blur-sm"
+                className="bg-background/80 backdrop-blur-sm shrink-0 sm:hidden"
+                data-testid="button-preview-download-mobile"
+              >
+                <Download className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleDownloadFromPreview}
+                className="bg-background/80 backdrop-blur-sm hidden sm:flex shrink-0"
                 data-testid="button-preview-download"
               >
                 <Download className="w-4 h-4 mr-2" />
@@ -980,7 +1034,7 @@ export default function Dashboard() {
 
         {uploadManager.uploads.length > 0 && (isUploadPanelVisible || uploadManager.isProcessing) && (
           <div
-            className="fixed bottom-4 right-4 z-30 w-96 max-w-[calc(100vw-2rem)] bg-card border border-border rounded-md shadow-lg"
+            className="fixed bottom-4 right-2 sm:right-4 z-30 w-[calc(100vw-1rem)] sm:w-96 sm:max-w-[calc(100vw-2rem)] bg-card border border-border rounded-md shadow-lg"
             data-testid="upload-panel"
           >
             <div
