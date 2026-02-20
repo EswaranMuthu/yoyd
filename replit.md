@@ -2,7 +2,7 @@
 
 ## Overview
 
-yoyd (you own your data) is a multi-tenant web application that lets users browse and manage their cloud storage through a clean, simple interface. Each user has isolated storage under `users/{username}/` in S3 but sees clean paths without the prefix. Users can browse files, upload content, create folders, and organize their cloud storage with JWT-based authentication (username/password and Google OAuth).
+yoyd (you own your data) is a multi-tenant web application that lets users browse and manage their cloud storage through a clean, simple interface. Each user has isolated storage under `users/{username}/` in S3 but sees clean paths without the prefix. Users can browse files, upload content, create folders, share files via secure links, and organize their cloud storage with JWT-based authentication (username/password and Google OAuth). The app is fully responsive across mobile, tablet, and desktop devices.
 
 **Tagline:** "You Own It. We Just Help You See It."
 **Mission:** Where Data Belongs to Its Owner.
@@ -41,6 +41,7 @@ The server handles API requests through Express middleware, with routes register
   - `billing_records`: Monthly billing history per user (year, month, consumed_bytes, free_bytes, billable_bytes, cost_cents); unique constraint on (user_id, year, month)
   - `refresh_tokens`: JWT refresh tokens with expiry and rotation
   - `s3_objects`: Cached metadata about S3 objects for efficient browsing
+  - `file_shares`: File sharing records (shareId, userId, s3ObjectId, expiresAt, isRevoked)
 
 The storage layer (`server/storage.ts`) provides database abstraction with CRUD operations for S3 object metadata. Auth storage (`server/auth/storage.ts`) handles user and token operations.
 
@@ -74,6 +75,14 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
 - `POST /api/objects/multipart/presign-part` - Get presigned URL for a multipart part
 - `POST /api/objects/multipart/complete` - Complete multipart upload
 - `POST /api/objects/multipart/abort` - Abort multipart upload
+
+### File Sharing
+- **Create share**: `POST /api/shares` - Generate a shareable link for a file (with optional expiration)
+- **List shares**: `GET /api/shares` - List all shares created by the current user ("Shared by Me")
+- **Revoke share**: `DELETE /api/shares/:shareId` - Revoke a shared link
+- **Public download**: `GET /api/shares/:shareId/download` - Public endpoint for downloading shared files (no auth required)
+- **Frontend**: Share dialog in Dashboard, "Shared by Me" section, public download page at `/share/:shareId`
+- **Database Table**: `file_shares` (shareId, userId, s3ObjectId, expiresAt, isRevoked, createdAt)
 
 ### Upload System
 - **Small files (<=100MB)**: Uploaded through server via multer with XHR progress tracking
@@ -181,10 +190,24 @@ Routes are type-defined in `shared/routes.ts` using Zod schemas for validation. 
   - ECS: `DescribeServices`, `DescribeTaskDefinition`, `RegisterTaskDefinition`, `UpdateService`
   - IAM: `PassRole` (to pass task execution role to ECS)
 
+### Responsive Design
+- **Breakpoints**: Tailwind CSS — sm (640px), md (768px), lg (1024px)
+- **Mobile**: Sidebar hidden (`hidden md:flex`), mobile header shown (`md:hidden`) with menu toggle & profile icon
+- **Tablet**: 2-column grid for feature/pricing cards
+- **Desktop**: Full sidebar, 4-column feature cards, side-by-side pricing cards
+- **Upload panel**: Full-width on mobile, 384px fixed on sm+
+- **Image preview**: Compact controls with icon-only download on mobile
+
 ### Landing Page
 - **Tagline**: "You Own It. We Just Help You See It."
 - **Subtitle**: "Where Data Belongs to Its Owner."
-- **Feature Cards**:
+- **Nav Bar**: Logo, Pricing (smooth-scroll link), Sign In, Get Started
+- **Hero Pricing Teaser**: "5 GB free every month · then just $0.10/GB" — clickable, scrolls to pricing section
+- **Feature Cards** (4-column on desktop, 2x2 on tablet, stacked on mobile):
   - "Works With Your Cloud" - Multi-cloud support (Amazon, Google, Microsoft)
   - "Your Files, Locked Down" - Bank-level security messaging
   - "Full Control" - Upload, download, create folders, delete files
+  - "Share Securely" - Share files via secure links with expiration and revoke
+- **Pricing Section** (id="pricing"):
+  - Free Tier card: 5 GB at $0/month with feature list
+  - Pay As You Go card: $0.10/GB beyond 5 GB, highlighted with amber badge
